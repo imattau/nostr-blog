@@ -3,7 +3,6 @@ import { useWebSocketImplementation } from "nostr-tools/pool";
 import WebSocket from "ws";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { normalizeEvent, type Post, type Profile } from "./normalize";
 
 useWebSocketImplementation(WebSocket);
@@ -57,9 +56,7 @@ class LRUCache<T> {
   }
 }
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const configPaths = [
-  path.resolve(__dirname, "../../data/config.json"),
   path.resolve(process.cwd(), "data/config.json"),
 ];
 
