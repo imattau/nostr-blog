@@ -375,6 +375,10 @@ port_is_listening() {
 	ss -H -ltn "sport = :${PORT}" | grep -q .
 }
 
+port_is_used() {
+	ss -H -tan "sport = :${PORT}" | grep -q .
+}
+
 service_is_active() {
 	sudo_run systemctl is-active --quiet "${SERVICE_NAME}.service"
 }
@@ -396,7 +400,7 @@ wait_for_ready() {
 
 choose_port() {
 	local candidate="$PORT"
-	while ss -H -ltn "sport = :${candidate}" | grep -q .; do
+	while ss -H -tan "sport = :${candidate}" | grep -q .; do
 		candidate=$((candidate + 1))
 		if (( candidate > 65535 )); then
 			die "no free ports available starting from ${PORT}"
@@ -458,6 +462,8 @@ sudo_run chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "$INSTALL_DIR"
 remote_step_done
 
 remote_step_begin "install production dependencies"
+sudo_run mkdir -p /var/www/.npm
+sudo_run chown -R "${SERVICE_USER}:${SERVICE_GROUP}" /var/www/.npm
 (
 	cd "$INSTALL_DIR"
 	sudo -u "$SERVICE_USER" npm install --omit=dev
@@ -482,7 +488,7 @@ Type=simple
 WorkingDirectory=${INSTALL_DIR}
 User=${SERVICE_USER}
 Group=${SERVICE_GROUP}
-ExecStart=/usr/bin/node ${INSTALL_DIR}/server.mjs
+ExecStart=/usr/bin/node ${INSTALL_DIR}/dist/server/entry.mjs
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
@@ -703,7 +709,7 @@ sudo_run chmod 0755 "$INSTALL_DIR"
 log "stopping existing service"
 sudo_run systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
 
-if port_is_listening; then
+if port_is_used; then
 	choose_port
 	log "selected port ${PORT}"
 fi

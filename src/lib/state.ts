@@ -205,36 +205,40 @@ async function fetchPosts(pubkeyHex: string, relays: string[], limit?: number): 
 }
 
 async function refreshAll(): Promise<void> {
-  if (!config.npub) return;
-  console.log("[nostr-blog] Refreshing...");
-
-  let pubkeyHex: string;
   try {
-    const decoded = nip19.decode(config.npub);
-    pubkeyHex = decoded.data as string;
-  } catch {
-    return;
-  }
+    if (!config.npub) return;
+    console.log("[nostr-blog] Refreshing...");
 
-  const relays = await discoverRelays(pubkeyHex);
-  currentRelays = relays;
-
-  const [fetched, prof] = await Promise.all([
-    fetchPosts(pubkeyHex, relays, 10),
-    fetchProfile(pubkeyHex, relays),
-  ]);
-
-  if (fetched.length > 0) {
-    postCache.clear();
-    const latest = fetched.slice(0, POST_CACHE_MAX);
-    for (const post of latest) {
-      postCache.set(post.slug, post);
+    let pubkeyHex: string;
+    try {
+      const decoded = nip19.decode(config.npub);
+      pubkeyHex = decoded.data as string;
+    } catch {
+      return;
     }
-    console.log(`[nostr-blog] Cached ${latest.length} posts (LRU max ${POST_CACHE_MAX})`);
-  }
-  if (prof) {
-    profile = prof;
-    console.log(`[nostr-blog] Cached profile for ${prof.displayName || prof.name}`);
+
+    const relays = await discoverRelays(pubkeyHex);
+    currentRelays = relays;
+
+    const [fetched, prof] = await Promise.all([
+      fetchPosts(pubkeyHex, relays, 10),
+      fetchProfile(pubkeyHex, relays),
+    ]);
+
+    if (fetched.length > 0) {
+      postCache.clear();
+      const latest = fetched.slice(0, POST_CACHE_MAX);
+      for (const post of latest) {
+        postCache.set(post.slug, post);
+      }
+      console.log(`[nostr-blog] Cached ${latest.length} posts (LRU max ${POST_CACHE_MAX})`);
+    }
+    if (prof) {
+      profile = prof;
+      console.log(`[nostr-blog] Cached profile for ${prof.displayName || prof.name}`);
+    }
+  } catch (err) {
+    console.error("[nostr-blog] Refresh failed:", err);
   }
 }
 
