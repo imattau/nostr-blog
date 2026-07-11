@@ -242,6 +242,30 @@ open_ssh_master() {
 		"$SSH_TARGET"
 }
 
+patch_site_url() {
+	local config_file="$REPO_ROOT/astro.config.mjs"
+	local config_backup="$REPO_ROOT/astro.config.mjs.bak"
+	local scheme="https"
+	[[ "$PROXY_MODE" == "none" ]] && scheme="http"
+
+	if [[ -z "$DOMAIN" ]]; then
+		return 0
+	fi
+
+	cp "$config_file" "$config_backup"
+	sed -i "s|site: \"[^\"]*\"|site: \"${scheme}://${DOMAIN}\"|" "$config_file"
+	log "patched site URL to ${scheme}://${DOMAIN}"
+}
+
+restore_site_url() {
+	local config_file="$REPO_ROOT/astro.config.mjs"
+	local config_backup="$REPO_ROOT/astro.config.mjs.bak"
+	if [[ -f "$config_backup" ]]; then
+		mv "$config_backup" "$config_file"
+		log "restored astro.config.mjs"
+	fi
+}
+
 build_app() {
 	if [[ "$DRY_RUN" == true ]]; then
 		step_begin "local build (dry-run)"
@@ -263,12 +287,16 @@ build_app() {
 	)
 	step_done
 
+	patch_site_url
+
 	step_begin "build local app"
 	(
 		cd "$REPO_ROOT"
 		npm run build
 	)
 	step_done
+
+	restore_site_url
 }
 
 sync_app() {
@@ -825,6 +853,10 @@ fi
 
 proxy_mode_resolved="$PROXY_MODE"
 
+cleanup() {
+	restore_site_url
+}
+trap 'cleanup' EXIT
 trap 'on_error $? $LINENO' ERR
 
 if [[ "$DRY_RUN" == true ]]; then
