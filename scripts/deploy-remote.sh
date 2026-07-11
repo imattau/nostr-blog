@@ -10,6 +10,7 @@ PORT="4321"
 PROXY_MODE="auto"
 DOMAIN=""
 CADDY_EMAIL=""
+NPUB=""
 SSH_PORT="22"
 DRY_RUN=false
 SKIP_BUILD=false
@@ -103,6 +104,7 @@ render_header() {
 	panel_line "port     : ${PORT}"
 	panel_line "proxy    : ${proxy_display}"
 	panel_line "domain   : ${DOMAIN:-<none>}"
+	panel_line "npub     : ${NPUB:-<setup UI>}"
 	panel_line "build    : $([[ "$SKIP_BUILD" == true ]] && printf 'skip local build' || printf 'npm ci + npm run build')"
 	panel_line "tty      : $([[ "$TTY_AVAILABLE" == true ]] && printf 'interactive' || printf 'non-interactive')"
 	hr
@@ -200,6 +202,7 @@ Options:
   --proxy auto|caddy|nginx|none  Reverse proxy mode (default: auto)
   --domain <hostname>      Reverse proxy hostname (required for caddy/nginx)
   --caddy-email <email>    Caddy ACME contact email
+  --npub <npub>             Nostr npub to pre-configure (skips setup UI)
   --ssh-port <port>        SSH port (default: 22)
   --skip-build             Skip the local build step
   --dry-run                Print actions without executing them
@@ -209,7 +212,7 @@ Environment overrides:
   NOSTR_BLOG_SSH_TARGET, NOSTR_BLOG_PORT, NOSTR_BLOG_INSTALL_DIR,
   NOSTR_BLOG_SERVICE_USER, NOSTR_BLOG_SERVICE_GROUP, NOSTR_BLOG_PROXY,
   NOSTR_BLOG_DOMAIN, NOSTR_BLOG_CADDY_EMAIL, NOSTR_BLOG_SSH_PORT,
-  NOSTR_BLOG_DRY_RUN, NOSTR_BLOG_SKIP_BUILD
+  NOSTR_BLOG_NPUB, NOSTR_BLOG_DRY_RUN, NOSTR_BLOG_SKIP_BUILD
 EOF
 }
 
@@ -338,6 +341,7 @@ PORT="$6"
 PROXY_MODE="$7"
 DOMAIN="$8"
 CADDY_EMAIL="$9"
+NPUB="${10:-}"
 DRY_RUN=false
 CURRENT_STEP=0
 CURRENT_STEP_LABEL=""
@@ -470,6 +474,7 @@ panel_line "service  : ${SERVICE_NAME}"
 panel_line "port     : ${PORT}"
 panel_line "proxy    : ${proxy_mode_resolved}"
 panel_line "domain   : ${DOMAIN:-<none>}"
+panel_line "npub     : ${NPUB:-<setup UI>}"
 hr
 printf '\n'
 
@@ -494,6 +499,12 @@ remote_step_done
 remote_step_begin "ensure data directory"
 sudo_run install -d -m 0755 "${INSTALL_DIR}/data"
 sudo_run chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}/data"
+
+if [[ -n "$NPUB" ]]; then
+	log "writing npub config"
+	printf '{"npub":"%s"}\n' "$NPUB" | sudo_run tee "${INSTALL_DIR}/data/config.json" >/dev/null
+	sudo_run chown "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}/data/config.json"
+fi
 remote_step_done
 
 install_service() {
@@ -778,8 +789,8 @@ REMOTESCRIPT
 	printf '%s\n' "$remote_script" >"$remote_script_file"
 	if [[ "$DRY_RUN" == true ]]; then
 		local remote_args
-		printf -v remote_args '%q %q %q %q %q %q %q %q %q' \
-			"$INSTALL_DIR" "$REMOTE_STAGE_DIR" "$SERVICE_NAME" "$SERVICE_USER" "$SERVICE_GROUP" "$PORT" "$PROXY_MODE" "$DOMAIN" "$CADDY_EMAIL"
+		printf -v remote_args '%q %q %q %q %q %q %q %q %q %q' \
+			"$INSTALL_DIR" "$REMOTE_STAGE_DIR" "$SERVICE_NAME" "$SERVICE_USER" "$SERVICE_GROUP" "$PORT" "$PROXY_MODE" "$DOMAIN" "$CADDY_EMAIL" "$NPUB"
 		printf '[dry-run] scp -P %s -o ControlMaster=auto -o ControlPersist=10m -o ControlPath=%q %q %q:%q\n' \
 			"$SSH_PORT" "$SSH_CONTROL_PATH" "$remote_script_file" "$SSH_TARGET" "/tmp/${SERVICE_NAME}-deploy.sh"
 		printf '[dry-run] ssh -tt -p %s -o ControlMaster=auto -o ControlPersist=10m -o ControlPath=%q %q bash %q %s\n' \
@@ -799,7 +810,7 @@ REMOTESCRIPT
 		-o "ControlMaster=auto" \
 		-o "ControlPersist=10m" \
 		-o "ControlPath=${SSH_CONTROL_PATH}" \
-		"$SSH_TARGET" "bash /tmp/${SERVICE_NAME}-deploy.sh $(printf '%q ' "$INSTALL_DIR" "$REMOTE_STAGE_DIR" "$SERVICE_NAME" "$SERVICE_USER" "$SERVICE_GROUP" "$PORT" "$PROXY_MODE" "$DOMAIN" "$CADDY_EMAIL")"
+		"$SSH_TARGET" "bash /tmp/${SERVICE_NAME}-deploy.sh $(printf '%q ' "$INSTALL_DIR" "$REMOTE_STAGE_DIR" "$SERVICE_NAME" "$SERVICE_USER" "$SERVICE_GROUP" "$PORT" "$PROXY_MODE" "$DOMAIN" "$CADDY_EMAIL" "$NPUB")"
 	step_done
 }
 
@@ -835,6 +846,10 @@ while [[ $# -gt 0 ]]; do
 			;;
 		--caddy-email)
 			CADDY_EMAIL="${2:-}"
+			shift 2
+			;;
+		--npub)
+			NPUB="${2:-}"
 			shift 2
 			;;
 		--ssh-port)
@@ -887,6 +902,9 @@ if [[ -z "$DOMAIN" ]]; then
 fi
 if [[ -z "$CADDY_EMAIL" ]]; then
 	CADDY_EMAIL="${NOSTR_BLOG_CADDY_EMAIL:-}"
+fi
+if [[ -z "$NPUB" ]]; then
+	NPUB="${NOSTR_BLOG_NPUB:-}"
 fi
 if [[ "$SSH_PORT" == "22" && -n "${NOSTR_BLOG_SSH_PORT:-}" ]]; then
 	SSH_PORT="$NOSTR_BLOG_SSH_PORT"
