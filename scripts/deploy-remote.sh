@@ -385,7 +385,7 @@ service_is_active() {
 
 wait_for_port_release() {
 	local attempt
-	for attempt in $(seq 1 10); do
+	for attempt in $(seq 1 60); do
 		if ! port_is_used; then
 			return 0
 		fi
@@ -612,6 +612,8 @@ ${import_line}"
 
 	if command -v caddy >/dev/null 2>&1; then
 		sudo_run caddy validate --config "$main_file"
+		log "reloading caddy"
+		sudo_run systemctl reload caddy 2>/dev/null || sudo_run caddy reload --config "$main_file" 2>/dev/null || sudo_run systemctl restart caddy
 	fi
 	remote_step_done
 }
