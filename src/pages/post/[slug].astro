@@ -1,0 +1,239 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { getPostBySlug, getPubkeyHex, getRelays, getCachedData } from "../../lib/state";
+import { Marked } from "marked";
+import type { Post } from "../../lib/normalize";
+import { stripHtml, renderNoteContent } from "../../lib/sanitize";
+
+const { slug } = Astro.params;
+const post = slug ? getPostBySlug(slug) : undefined;
+const pubkeyHex = getPubkeyHex();
+const relays = getRelays();
+const cachedPosts = getCachedData().posts;
+
+const OPEN_WRITE_RELAYS = [
+  "wss://relay.damus.io",
+  "wss://nos.lol",
+  "wss://relay.nostr.band",
+  "wss://relay.nostr.bg",
+  "wss://relay.nostrata.xyz",
+];
+
+const commentRelays = [...new Set([...relays, ...OPEN_WRITE_RELAYS])].join(",");
+
+let rendered: string | null = null;
+if (post?.kind === 30023) {
+  const marked = new Marked();
+  rendered = await marked.parse(stripHtml(post.content));
+}
+---
+
+{
+  post ? (
+    <BaseLayout title={post.title} description={post.summary}>
+      <article class="max-w-3xl mx-auto px-4 py-12 sm:py-16">
+        {post.image ? (
+          <div class="aspect-[2/1] rounded-2xl overflow-hidden mb-8 bg-gray-100 dark:bg-gray-900">
+            <img
+              src={post.image}
+              alt={post.title}
+              class="w-full h-full object-cover"
+            />
+          </div>
+        ) : null}
+
+        <header class="mb-10">
+          <div class="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400 mb-4">
+            <time datetime={new Date(post.publishedAt * 1000).toISOString()}>
+              {new Date(post.publishedAt * 1000).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </time>
+            <span class="w-1 h-1 rounded-full bg-gray-400" />
+            <span class="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800">
+              {post.kind === 30023 ? "Article" : "Note"}
+            </span>
+          </div>
+
+          <h1 class="text-3xl sm:text-4xl font-bold leading-tight">
+            {post.title}
+          </h1>
+        </header>
+
+        {post.kind === 30023 ? (
+          <div set:html={rendered} />
+        ) : (
+          <div set:html={renderNoteContent(post.content)} />
+        )}
+
+        <footer class="mt-16 pt-8 border-t border-gray-200 dark:border-gray-800">
+          <a
+            href="/"
+            class="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            &larr; Back to all posts
+          </a>
+        </footer>
+      </article>
+
+      <section class="max-w-3xl mx-auto px-4 pb-16">
+        <h2 class="text-xl font-bold mb-6">Comments</h2>
+        <disgus-comments
+          pubkey={pubkeyHex}
+          relays={commentRelays}
+          event-id={post.kind === 1 ? post.id : undefined}
+        ></disgus-comments>
+      </section>
+
+      <script is:inline src="/disgus/disgus.js"></script>
+
+      <script is:inline>
+        try {
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith("r:") || key.startsWith("e:"))) {
+              try {
+                const val = JSON.parse(localStorage.getItem(key));
+                if (!val || typeof val !== "object" || !val.id) {
+                  localStorage.removeItem(key);
+                }
+              } catch {
+                localStorage.removeItem(key);
+              }
+            }
+          }
+        } catch (e) {}
+      </script>
+    </BaseLayout>
+  ) : (
+    <BaseLayout title="Post" description="Loading post from Nostr">
+      <article class="max-w-3xl mx-auto px-4 py-12 sm:py-16">
+        <div id="post-loading" class="text-center py-20">
+          <div class="animate-pulse">
+            <div class="h-8 bg-gray-200 dark:bg-gray-800 rounded w-3/4 mx-auto mb-4"></div>
+            <div class="h-4 bg-gray-200 dark:bg-gray-800 rounded w-1/3 mx-auto mb-6"></div>
+            <div class="h-4 bg-gray-200 dark:bg-gray-800 rounded w-full mx-auto mb-2"></div>
+            <div class="h-4 bg-gray-200 dark:bg-gray-800 rounded w-5/6 mx-auto mb-2"></div>
+            <div class="h-4 bg-gray-200 dark:bg-gray-800 rounded w-2/3 mx-auto"></div>
+          </div>
+          <p class="text-sm text-gray-500 dark:text-gray-400 mt-6">
+            Loading post from Nostr...
+          </p>
+        </div>
+
+        <div id="post-content" class="hidden">
+          <div id="post-image-container" class="hidden"></div>
+          <header id="post-header" class="mb-10"></header>
+          <div id="post-body" class="prose dark:prose-invert max-w-none"></div>
+        </div>
+
+        <div id="post-error" class="hidden text-center py-20">
+          <p class="text-lg font-bold mb-2">Post not found</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
+            Could not load this post from Nostr relays.
+          </p>
+          <a
+            href="/"
+            class="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            &larr; Back to all posts
+          </a>
+        </div>
+
+        <footer class="mt-16 pt-8 border-t border-gray-200 dark:border-gray-800">
+          <a
+            href="/"
+            class="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            &larr; Back to all posts
+          </a>
+        </footer>
+      </article>
+
+      <section class="max-w-3xl mx-auto px-4 pb-16">
+        <h2 class="text-xl font-bold mb-6">Comments</h2>
+        <disgus-comments
+          pubkey={pubkeyHex}
+          relays={commentRelays}
+        ></disgus-comments>
+      </section>
+
+      <script is:inline src="/disgus/disgus.js"></script>
+
+      <script id="nostr-post-data" type="application/json">
+        {JSON.stringify({ slug, pubkeyHex, relays })}
+      </script>
+
+      <script>
+        import { fetchPostBySlug, renderMarkdown } from "../../lib/client";
+        import { escapeHtml, sanitizeImageUrl, renderNoteContent } from "../../lib/sanitize";
+
+        (async () => {
+          const el = document.getElementById("nostr-post-data");
+          const data = JSON.parse(el?.textContent || "{}") as Record<string, unknown>;
+          const slug = data.slug as string;
+          const pubkeyHex = data.pubkeyHex as string | undefined;
+          const relays = data.relays as string[] | undefined;
+
+          if (!pubkeyHex || !relays?.length || !slug) return;
+
+          const loading = document.getElementById("post-loading") as HTMLElement | null;
+          const content = document.getElementById("post-content") as HTMLElement | null;
+          const error = document.getElementById("post-error") as HTMLElement | null;
+
+          const post = await fetchPostBySlug(pubkeyHex, relays, slug);
+
+          if (!post) {
+            if (loading) loading.classList.add("hidden");
+            if (error) error.classList.remove("hidden");
+            return;
+          }
+
+          if (loading) loading.classList.add("hidden");
+          if (content) content.classList.remove("hidden");
+
+          if (post.image) {
+            const imgContainer = document.getElementById("post-image-container") as HTMLElement | null;
+            if (imgContainer) {
+              imgContainer.classList.remove("hidden");
+              const safeUrl = sanitizeImageUrl(post.image);
+              if (safeUrl) {
+                imgContainer.innerHTML = `<div class="aspect-[2/1] rounded-2xl overflow-hidden mb-8 bg-gray-100 dark:bg-gray-900">
+                  <img src="${safeUrl}" alt="${escapeHtml(post.title)}" class="w-full h-full object-cover" />
+                </div>`;
+              }
+            }
+          }
+
+          const header = document.getElementById("post-header") as HTMLElement | null;
+          if (header) {
+            const date = new Date(post.publishedAt * 1000);
+            const dateStr = date.toLocaleDateString("en-US", {
+              year: "numeric", month: "long", day: "numeric",
+            });
+            const kindLabel = post.kind === 30023 ? "Article" : "Note";
+            header.innerHTML = `
+              <div class="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400 mb-4">
+                <time datetime="${date.toISOString()}">${escapeHtml(dateStr)}</time>
+                <span class="w-1 h-1 rounded-full bg-gray-400"></span>
+                <span class="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800">${escapeHtml(kindLabel)}</span>
+              </div>
+              <h1 class="text-3xl sm:text-4xl font-bold leading-tight">${escapeHtml(post.title)}</h1>
+            `;
+          }
+
+          const body = document.getElementById("post-body") as HTMLElement | null;
+          if (body) {
+            if (post.kind === 30023) {
+              renderMarkdown(post.content, body);
+            } else {
+              body.innerHTML = renderNoteContent(post.content);
+            }
+          }
+        })();
+      </script>
+    </BaseLayout>
+  )
+}

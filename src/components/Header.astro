@@ -1,0 +1,29 @@
+---
+import ThemeToggle from "./ThemeToggle.astro";
+import { isSetupComplete } from "../lib/state";
+---
+
+<header class="border-b border-gray-200 dark:border-gray-800">
+  <div class="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+    <a href="/" class="text-lg font-semibold tracking-tight hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+      Nostr Blog
+    </a>
+    <nav class="flex items-center gap-4">
+      <a
+        href="/"
+        class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+      >
+        Posts
+      </a>
+      {isSetupComplete() ? (
+        <a
+          href="/about"
+          class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+        >
+          About
+        </a>
+      ) : null}
+      <ThemeToggle />
+    </nav>
+  </div>
+</header>

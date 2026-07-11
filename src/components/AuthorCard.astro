@@ -1,0 +1,45 @@
+---
+import { getProfile, getNpub } from "../lib/state";
+
+const profile = getProfile();
+const npub = getNpub();
+const name = profile?.displayName || profile?.name || "";
+---
+
+{
+  profile ? (
+    <a
+      href="/about"
+      class="group block rounded-xl border border-gray-200 dark:border-gray-800 p-5 hover:shadow-md hover:border-gray-300 dark:hover:border-gray-700 transition-all"
+    >
+      <div class="flex items-start gap-4">
+        {profile.picture ? (
+          <img
+            src={profile.picture}
+            alt={name}
+            class="w-14 h-14 rounded-full object-cover shrink-0 bg-gray-100 dark:bg-gray-900"
+          />
+        ) : (
+          <div class="w-14 h-14 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center shrink-0">
+            <span class="text-lg font-bold text-blue-600 dark:text-blue-400">
+              {(name[0] || "?").toUpperCase()}
+            </span>
+          </div>
+        )}
+        <div class="min-w-0">
+          <h2 class="text-lg font-semibold group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+            {name}
+          </h2>
+          {profile.about ? (
+            <p class="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
+              {profile.about}
+            </p>
+          ) : null}
+          <p class="text-sm text-blue-600 dark:text-blue-400 mt-2 font-medium">
+            About the author &rarr;
+          </p>
+        </div>
+      </div>
+    </a>
+  ) : null
+}

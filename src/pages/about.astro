@@ -1,0 +1,110 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { isSetupComplete, getProfile, getNpub, getPubkeyHex, getPosts } from "../lib/state";
+
+if (!isSetupComplete()) {
+  return Astro.redirect("/", 302);
+}
+
+const profile = getProfile();
+const npub = getNpub() || "";
+const hex = getPubkeyHex() || "";
+const postCount = getPosts().length;
+const name = profile?.displayName || profile?.name || "";
+---
+
+<BaseLayout title={name ? `About ${name}` : "About"} description={profile?.about}>
+  <div class="max-w-3xl mx-auto px-4 py-12 sm:py-16">
+    {
+      profile ? (
+        <div class="text-center">
+          {profile.banner ? (
+            <div class="aspect-[3/1] rounded-2xl overflow-hidden mb-8 bg-gray-100 dark:bg-gray-900">
+              <img
+                src={profile.banner}
+                alt=""
+                class="w-full h-full object-cover"
+              />
+            </div>
+          ) : null}
+
+          <div class={profile.banner ? "-mt-16 mb-6" : "mb-6"}>
+            {profile.picture ? (
+              <img
+                src={profile.picture}
+                alt={name}
+                class="w-28 h-28 rounded-full object-cover mx-auto border-4 border-white dark:border-gray-950 bg-gray-100 dark:bg-gray-900"
+              />
+            ) : (
+              <div class="w-28 h-28 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center mx-auto border-4 border-white dark:border-gray-950">
+                <span class="text-3xl font-bold text-blue-600 dark:text-blue-400">
+                  {(name[0] || "?").toUpperCase()}
+                </span>
+              </div>
+            )}
+          </div>
+
+          <h1 class="text-3xl font-bold mb-2">{name}</h1>
+
+          {profile.nip05 ? (
+            <p class="text-sm text-green-600 dark:text-green-400 mb-3">
+              &#10003; {profile.nip05}
+            </p>
+          ) : null}
+
+          {profile.website ? (
+            <a
+              href={profile.website.startsWith("http") ? profile.website : `https://${profile.website}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-block text-sm text-blue-600 dark:text-blue-400 hover:underline mb-4"
+            >
+              {profile.website.replace(/^https?:\/\//, "")}
+            </a>
+          ) : null}
+
+          {profile.about ? (
+            <div class="mt-6 text-left max-w-xl mx-auto">
+              <p class="text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                {profile.about}
+              </p>
+            </div>
+          ) : null}
+
+          <div class="mt-10 pt-8 border-t border-gray-200 dark:border-gray-800">
+            <dl class="flex justify-center gap-8">
+              <div>
+                <dt class="text-2xl font-bold">{postCount}</dt>
+                <dd class="text-sm text-gray-500 dark:text-gray-400">Posts</dd>
+              </div>
+              {hex ? (
+                <div>
+                  <dt class="text-xs text-gray-400 break-all max-w-[200px] font-mono">
+                    {npub.slice(0, 16)}...{npub.slice(-8)}
+                  </dt>
+                  <dd class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">npub</dd>
+                </div>
+              ) : null}
+            </dl>
+          </div>
+        </div>
+      ) : (
+        <div class="text-center py-20">
+          <h1 class="text-2xl font-bold mb-4">About the Author</h1>
+          <p class="text-gray-500 dark:text-gray-400">
+            Profile information is being fetched.
+          </p>
+        </div>
+      )
+    }
+
+    <div class="text-center mt-10">
+      <a
+        href="/"
+        class="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+      >
+        &larr; Back to blog
+      </a>
+    </div>
+  </div>
+</BaseLayout>

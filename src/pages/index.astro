@@ -1,0 +1,194 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import FeaturedPost from "../components/FeaturedPost.astro";
+import PostCard from "../components/PostCard.astro";
+import AuthorCard from "../components/AuthorCard.astro";
+import { isSetupComplete, getCachedData } from "../lib/state";
+import type { Post } from "../lib/normalize";
+---
+
+{
+  isSetupComplete() ? (
+    (() => {
+      const { posts, pubkeyHex, relays } = getCachedData();
+      const featured = posts.find((p: Post) => p.image) || posts[0];
+      const remaining = posts.filter((p: Post) => p.id !== featured?.id);
+      const shownIds = posts.map((p: Post) => p.id);
+
+      return (
+        <BaseLayout title="Home" description="A blog powered by Nostr">
+          <div class="max-w-5xl mx-auto px-4 py-12 sm:py-16">
+            <section class="mb-12">
+              <AuthorCard />
+            </section>
+
+            {posts.length === 0 ? (
+              <div class="text-center py-20">
+                <h1 class="text-2xl font-bold mb-4">No posts yet</h1>
+                <p class="text-gray-500 dark:text-gray-400">
+                  Fetching blog posts from Nostr. Check back soon.
+                </p>
+              </div>
+            ) : (
+              <>
+                <section class="mb-16">
+                  <FeaturedPost post={featured} />
+                </section>
+
+                {remaining.length > 0 ? (
+                  <section>
+                    {featured.image ? (
+                      <h2 class="text-sm font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-6">
+                        More Posts
+                      </h2>
+                    ) : null}
+                    <div id="post-grid" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                      {remaining.map((post: Post) => (
+                        <PostCard post={post} />
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                <div id="load-more-container" class="mt-10 text-center">
+                  <button
+                    id="load-more-btn"
+                    class="px-6 py-3 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ display: "none" }}
+                  >
+                    Load More Posts
+                  </button>
+                  <p id="load-more-status" class="text-sm text-gray-500 dark:text-gray-400 hidden mt-4"></p>
+                </div>
+              </>
+            )}
+          </div>
+
+          <script id="nostr-blog-data" type="application/json">
+            {JSON.stringify({ pubkeyHex, relays, shownIds, oldestTime: posts.length > 0 ? posts[posts.length - 1].publishedAt : null })}
+          </script>
+
+          <script>
+            import { fetchOlderPosts, renderPostCard } from "../lib/client";
+
+            const el = document.getElementById("nostr-blog-data");
+            const data = JSON.parse(el?.textContent || "{}") as Record<string, unknown>;
+            const pubkeyHex = data.pubkeyHex as string | undefined;
+            const relays = data.relays as string[] | undefined;
+            const shownIds = new Set<string>(data.shownIds as string[] || []);
+            const grid = document.getElementById("post-grid") as HTMLElement | null;
+            const btn = document.getElementById("load-more-btn") as HTMLButtonElement | null;
+            const status = document.getElementById("load-more-status") as HTMLElement | null;
+            let loading = false;
+            let oldestTime = (data.oldestTime as number) || undefined;
+
+            async function loadMore() {
+              if (loading || !pubkeyHex || !relays?.length || !btn || !status) return;
+              loading = true;
+              btn.disabled = true;
+              status.textContent = "Loading older posts from Nostr...";
+              status.classList.remove("hidden");
+
+              const posts = await fetchOlderPosts(pubkeyHex, relays, oldestTime, shownIds);
+
+              status.classList.add("hidden");
+              loading = false;
+
+              if (posts.length === 0) {
+                status.textContent = "No more posts found.";
+                status.classList.remove("hidden");
+                btn.style.display = "none";
+                return;
+              }
+
+              for (const post of posts) {
+                shownIds.add(post.id);
+                const div = document.createElement("div");
+                div.innerHTML = renderPostCard(post);
+                if (grid) grid.appendChild(div.firstElementChild || div);
+              }
+
+              oldestTime = posts[posts.length - 1].publishedAt;
+              btn.disabled = false;
+              btn.style.display = "inline-block";
+            }
+
+            if (pubkeyHex && relays?.length && btn) {
+              btn.style.display = "inline-block";
+              btn.addEventListener("click", loadMore);
+            }
+          </script>
+        </BaseLayout>
+      );
+    })()
+  ) : (
+    <BaseLayout title="Setup" description="Configure your Nostr blog">
+      <div id="setup-root" class="min-h-[80vh] flex items-center justify-center px-4">
+        <div class="w-full max-w-md">
+          <div class="text-center mb-10">
+            <h1 class="text-3xl font-bold mb-3">Nostr Blog</h1>
+            <p class="text-gray-500 dark:text-gray-400">
+              Enter the npub of the author whose posts you want to display.
+              This can only be set once.
+            </p>
+          </div>
+
+          <form id="setup-form" class="space-y-4">
+            <div>
+              <label for="npub" class="block text-sm font-medium mb-1.5 text-gray-700 dark:text-gray-300">
+                Nostr Public Key (npub)
+              </label>
+              <input
+                id="npub"
+                type="text"
+                placeholder="npub1..."
+                required
+                class="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+              />
+            </div>
+
+            <p id="setup-error" class="text-red-500 text-sm hidden"></p>
+
+            <button
+              type="submit"
+              class="w-full px-4 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              Set Up Blog
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <script>
+        document.getElementById("setup-form")?.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const input = document.getElementById("npub");
+          const error = document.getElementById("setup-error");
+          const btn = e.currentTarget.querySelector("button");
+          btn.disabled = true;
+          error.classList.add("hidden");
+
+          try {
+            const res = await fetch("/api/setup", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ npub: input.value }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              error.textContent = data.error || "Failed to save";
+              error.classList.remove("hidden");
+              btn.disabled = false;
+              return;
+            }
+            window.location.reload();
+          } catch {
+            error.textContent = "Network error";
+            error.classList.remove("hidden");
+            btn.disabled = false;
+          }
+        });
+      </script>
+    </BaseLayout>
+  )
+}
