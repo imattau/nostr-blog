@@ -235,11 +235,20 @@ open_ssh_master() {
 		printf '[dry-run] ssh -MNf -p %s %s\n' "$SSH_PORT" "$SSH_TARGET"
 		return 0
 	fi
-	ssh -MNf -p "$SSH_PORT" \
-		-o "ControlMaster=auto" \
-		-o "ControlPersist=10m" \
-		-o "ControlPath=${SSH_CONTROL_PATH}" \
-		"$SSH_TARGET"
+	local attempt
+	for attempt in $(seq 1 3); do
+		if ssh -MNf -p "$SSH_PORT" \
+			-o "ControlMaster=auto" \
+			-o "ControlPersist=10m" \
+			-o "ControlPath=${SSH_CONTROL_PATH}" \
+			-o "ConnectTimeout=10" \
+			"$SSH_TARGET" 2>/dev/null; then
+			return 0
+		fi
+		warn "ssh connection attempt ${attempt} failed, retrying..."
+		sleep 2
+	done
+	die "ssh connection to ${SSH_TARGET} failed after 3 attempts"
 }
 
 patch_site_url() {
