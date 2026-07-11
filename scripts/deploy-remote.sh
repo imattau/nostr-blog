@@ -383,6 +383,18 @@ service_is_active() {
 	sudo_run systemctl is-active --quiet "${SERVICE_NAME}.service"
 }
 
+wait_for_port_release() {
+	local attempt
+	for attempt in $(seq 1 10); do
+		if ! port_is_used; then
+			return 0
+		fi
+		sleep 1
+	done
+	warn "port ${PORT} did not become free after stopping service"
+	return 1
+}
+
 wait_for_ready() {
 	local attempt
 	for attempt in $(seq 1 30); do
@@ -574,10 +586,13 @@ ${import_line}"
 			write_managed_file "$main_file" "${current_content}
 
 ${import_line}"
-		else
-			warn "existing Caddyfile does not import ${snippet_dir}; not modifying it"
-			warn "add this line manually if needed: ${import_line}"
-		fi
+	else
+		log "existing Caddyfile does not import ${snippet_dir}; adding import line"
+		local backup_file="${main_file}.bak.${SERVICE_NAME}"
+		sudo_run cp "$main_file" "$backup_file"
+		printf '\n%s\n%s\n' "$managed_marker" "$import_line" | sudo_run tee -a "$main_file" >/dev/null
+		log "original Caddyfile backed up to ${backup_file}"
+	fi
 	fi
 
 	if command -v caddy >/dev/null 2>&1; then
@@ -709,7 +724,7 @@ sudo_run chmod 0755 "$INSTALL_DIR"
 log "stopping existing service"
 sudo_run systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
 
-if port_is_used; then
+if ! wait_for_port_release; then
 	choose_port
 	log "selected port ${PORT}"
 fi
