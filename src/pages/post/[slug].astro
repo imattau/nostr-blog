@@ -1,15 +1,19 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
-import { getPostBySlug, getPubkeyHex, getRelays, getCachedData } from "../../lib/state";
+import { getPostBySlug, getPubkeyHex, getRelays, getCachedData, getProfile } from "../../lib/state";
 import { Marked } from "marked";
 import type { Post } from "../../lib/normalize";
 import { stripHtml, renderNoteContent } from "../../lib/sanitize";
+import { buildArticleJsonLd, buildBreadcrumbJsonLd, jsonLdToString } from "../../lib/seo";
 
 const { slug } = Astro.params;
 const post = slug ? getPostBySlug(slug) : undefined;
 const pubkeyHex = getPubkeyHex();
 const relays = getRelays();
 const cachedPosts = getCachedData().posts;
+const profile = getProfile();
+const authorName = profile?.displayName || profile?.name || "";
+const siteUrl = Astro.site?.href?.replace(/\/$/, "") || "";
 
 const OPEN_WRITE_RELAYS = [
   "wss://relay.damus.io",
@@ -26,12 +30,37 @@ if (post?.kind === 30023) {
   const marked = new Marked();
   rendered = await marked.parse(stripHtml(post.content));
 }
+
+const postUrl = post ? `${siteUrl}/post/${post.slug}` : "";
+const articleJsonLd = post ? jsonLdToString(buildArticleJsonLd(post, siteUrl, authorName)) : "";
+const breadcrumbJsonLd = post ? jsonLdToString(buildBreadcrumbJsonLd([
+  { name: "Home", url: siteUrl || "/" },
+  { name: post.title, url: postUrl },
+])) : "";
 ---
 
 {
   post ? (
-    <BaseLayout title={post.title} description={post.summary}>
-      <article class="max-w-3xl mx-auto px-4 py-12 sm:py-16">
+    <BaseLayout
+      title={post.title}
+      description={post.summary}
+      ogImage={post.image || profile?.picture || undefined}
+      ogUrl={postUrl}
+      ogType="article"
+      canonicalUrl={postUrl}
+      jsonLd={articleJsonLd + breadcrumbJsonLd}
+      articlePublishedTime={new Date(post.publishedAt * 1000).toISOString()}
+      articleAuthor={authorName || undefined}
+    >
+      <nav aria-label="Breadcrumb" class="max-w-3xl mx-auto px-4 pt-8 text-sm text-gray-500 dark:text-gray-400">
+        <ol class="flex items-center gap-2">
+          <li><a href="/" class="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Home</a></li>
+          <li aria-hidden="true">/</li>
+          <li class="truncate max-w-[200px] sm:max-w-xs" aria-current="page">{post.title}</li>
+        </ol>
+      </nav>
+
+      <article class="max-w-3xl mx-auto px-4 py-8 sm:py-12">
         {post.image ? (
           <div class="aspect-[2/1] rounded-2xl overflow-hidden mb-8 bg-gray-100 dark:bg-gray-900">
             <img
@@ -87,7 +116,7 @@ if (post?.kind === 30023) {
         ></disgus-comments>
       </section>
 
-      <script is:inline src="/disgus/disgus.js"></script>
+      <script is:inline src="/disgus/disgus.js" defer></script>
 
       <script is:inline>
         try {
@@ -160,7 +189,7 @@ if (post?.kind === 30023) {
         ></disgus-comments>
       </section>
 
-      <script is:inline src="/disgus/disgus.js"></script>
+      <script is:inline src="/disgus/disgus.js" defer></script>
 
       <script id="nostr-post-data" type="application/json">
         {JSON.stringify({ slug, pubkeyHex, relays })}

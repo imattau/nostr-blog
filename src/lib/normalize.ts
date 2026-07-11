@@ -48,10 +48,14 @@ export function normalizeEvent(event: any): Post | null {
   }
 
   if (event.kind === 1) {
+    const firstLine = content.split("\n")[0].trim();
+    const sentenceEnd = firstLine.search(/[.!?](?:\s|$)/);
     const title =
-      content.length > 80
-        ? content.slice(0, 80).trimEnd() + "..."
-        : content;
+      sentenceEnd !== -1 && sentenceEnd < 120
+        ? firstLine.slice(0, sentenceEnd + 1)
+        : firstLine.length > 80
+          ? firstLine.slice(0, 80).trimEnd() + "…"
+          : firstLine;
     return {
       id: event.id,
       slug: event.id.slice(0, 8),
@@ -59,7 +63,7 @@ export function normalizeEvent(event: any): Post | null {
       title,
       summary:
         content.length > 200
-          ? content.slice(0, 200).trimEnd() + "..."
+          ? content.slice(0, 200).trimEnd() + "…"
           : content,
       image: null,
       content,

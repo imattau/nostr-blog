@@ -3,22 +3,26 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 import FeaturedPost from "../components/FeaturedPost.astro";
 import PostCard from "../components/PostCard.astro";
 import AuthorCard from "../components/AuthorCard.astro";
-import { isSetupComplete, getCachedData } from "../lib/state";
+import { isSetupComplete, getCachedData, getProfile } from "../lib/state";
 import type { Post } from "../lib/normalize";
 ---
 
 {
   isSetupComplete() ? (
     (() => {
+      const profile = getProfile();
       const { posts, pubkeyHex, relays } = getCachedData();
       const featured = posts.find((p: Post) => p.image) || posts[0];
       const remaining = posts.filter((p: Post) => p.id !== featured?.id);
       const shownIds = posts.map((p: Post) => p.id);
+      const authorName = profile?.displayName || profile?.name || "";
+      const pageTitle = authorName ? `${authorName}'s Blog` : "Home";
 
       return (
-        <BaseLayout title="Home" description="A blog powered by Nostr">
+        <BaseLayout title={pageTitle} description={profile?.about || "A blog powered by Nostr"} ogImage={profile?.picture || undefined}>
           <div class="max-w-5xl mx-auto px-4 py-12 sm:py-16">
             <section class="mb-12">
+              <h1 class="sr-only">{pageTitle}</h1>
               <AuthorCard />
             </section>
 

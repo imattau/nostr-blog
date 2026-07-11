@@ -1,6 +1,26 @@
 ---
 import "../styles/global.css";
 import Header from "../components/Header.astro";
+import { truncateText } from "../lib/seo";
+
+export interface Props {
+  title?: string;
+  description?: string;
+  ogImage?: string;
+  ogUrl?: string;
+  ogType?: string;
+  canonicalUrl?: string;
+  jsonLd?: string;
+  noIndex?: boolean;
+  articlePublishedTime?: string;
+  articleAuthor?: string;
+}
+
+const props = Astro.props as Props;
+const siteTitle = props.title ? `${props.title} — Nostr Blog` : "Nostr Blog";
+const siteDescription = props.description || "A blog powered by Nostr";
+const ogDescription = truncateText(siteDescription, 160);
+const ogTitle = truncateText(siteTitle, 60);
 ---
 
 <!doctype html>
@@ -9,8 +29,28 @@ import Header from "../components/Header.astro";
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>{Astro.props.title ? `${Astro.props.title} — Nostr Blog` : "Nostr Blog"}</title>
-    <meta name="description" content={Astro.props.description || "A blog powered by Nostr"} />
+    <title>{siteTitle}</title>
+    <meta name="description" content={siteDescription} />
+    {props.noIndex ? <meta name="robots" content="noindex" /> : null}
+    {props.canonicalUrl ? <link rel="canonical" href={props.canonicalUrl} /> : null}
+
+    <meta property="og:title" content={ogTitle} />
+    <meta property="og:description" content={ogDescription} />
+    <meta property="og:type" content={props.ogType || "website"} />
+    {props.ogUrl ? <meta property="og:url" content={props.ogUrl} /> : null}
+    {props.ogImage ? <meta property="og:image" content={props.ogImage} /> : null}
+    <meta property="og:site_name" content="Nostr Blog" />
+
+    <meta name="twitter:card" content={props.ogImage ? "summary_large_image" : "summary"} />
+    <meta name="twitter:title" content={ogTitle} />
+    <meta name="twitter:description" content={ogDescription} />
+    {props.ogImage ? <meta name="twitter:image" content={props.ogImage} /> : null}
+
+    {props.articlePublishedTime ? <meta property="article:published_time" content={props.articlePublishedTime} /> : null}
+    {props.articleAuthor ? <meta property="article:author" content={props.articleAuthor} /> : null}
+
+    {props.jsonLd ? <Fragment set:html={props.jsonLd} /> : null}
+
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' wss: ws: https:; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" />
   </head>
   <body class="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100 font-sans antialiased">
