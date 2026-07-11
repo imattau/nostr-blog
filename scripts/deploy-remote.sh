@@ -565,6 +565,9 @@ configure_caddy() {
 
 	log "configuring caddy for ${domain}"
 	sudo_run install -d -m 0755 "$snippet_dir"
+
+	# Always write the snippet with the current port (sourced by import line
+	# when it exists, or available if the user adds the import later).
 	content="${managed_marker}
 ${domain} {
 	${CADDY_EMAIL:+tls ${CADDY_EMAIL}}
@@ -574,11 +577,15 @@ ${domain} {
 	write_managed_file "$snippet_file" "$content"
 
 	if [[ ! -f "$main_file" ]]; then
+		# Fresh Caddyfile: create with snippet import.
 		write_managed_file "$main_file" "${managed_marker}
 ${import_line}"
 	else
+		# Caddyfile already imports a snippet dir -> snippet is already loaded.
 		if grep -qE '^[[:space:]]*import[[:space:]].*(/etc/caddy/)?(conf\.d|Caddyfile\.d)/\*\.caddy' "$main_file"; then
 			log "existing Caddyfile already imports a snippet directory; leaving it unchanged"
+
+		# Caddyfile is managed by nostr-blog -> add the snippet import.
 		elif grep -qF "$managed_marker" "$main_file"; then
 			log "existing Caddyfile is managed by nostr-blog; adding snippet import"
 			local current_content
@@ -586,13 +593,21 @@ ${import_line}"
 			write_managed_file "$main_file" "${current_content}
 
 ${import_line}"
-	else
-		log "existing Caddyfile does not import ${snippet_dir}; adding import line"
-		local backup_file="${main_file}.bak.${SERVICE_NAME}"
-		sudo_run cp "$main_file" "$backup_file"
-		printf '\n%s\n%s\n' "$managed_marker" "$import_line" | sudo_run tee -a "$main_file" >/dev/null
-		log "original Caddyfile backed up to ${backup_file}"
-	fi
+
+		# Domain is already defined directly in the Caddyfile -> update port in place.
+		elif grep -qE "^\s*${domain}\s*{" "$main_file"; then
+			log "updating port to ${port} in existing Caddyfile block for ${domain}"
+			local backup_file="${main_file}.bak.${SERVICE_NAME}"
+			sudo_run cp "$main_file" "$backup_file"
+			sudo_run sed -i "s|\(reverse_proxy\s\+localhost:\)[0-9]\+|\1${port}|" "$main_file"
+
+		# No snippet import and domain not in Caddyfile -> safely add import.
+		else
+			log "adding snippet import to Caddyfile"
+			local backup_file="${main_file}.bak.${SERVICE_NAME}"
+			sudo_run cp "$main_file" "$backup_file"
+			printf '\n%s\n%s\n' "$managed_marker" "$import_line" | sudo_run tee -a "$main_file" >/dev/null
+		fi
 	fi
 
 	if command -v caddy >/dev/null 2>&1; then
