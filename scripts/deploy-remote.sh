@@ -524,7 +524,7 @@ detect_caddy_snippet_dir() {
 	fi
 	if [[ -f "$main_file" ]]; then
 		for dir in /etc/caddy/conf.d /etc/caddy/Caddyfile.d; do
-			if grep -qE "^[[:space:]]*import[[:space:]].*${dir}/\\*\\.caddy" "$main_file" 2>/dev/null; then
+			if grep -qE "^[[:space:]]*import[[:space:]].*${dir}/\\*(\\.caddy)?\"?" "$main_file" 2>/dev/null; then
 				printf '%s' "$dir"
 				return 0
 			fi
@@ -582,7 +582,7 @@ ${domain} {
 ${import_line}"
 	else
 		# Caddyfile already imports a snippet dir -> snippet is already loaded.
-		if grep -qE '^[[:space:]]*import[[:space:]].*(/etc/caddy/)?(conf\.d|Caddyfile\.d)/\*\.caddy' "$main_file"; then
+		if grep -qE '^[[:space:]]*import[[:space:]].*(/etc/caddy/)?(conf\.d|Caddyfile\.d)/\*(\.caddy)?' "$main_file"; then
 			log "existing Caddyfile already imports a snippet directory; leaving it unchanged"
 
 		# Caddyfile is managed by nostr-blog -> add the snippet import.
