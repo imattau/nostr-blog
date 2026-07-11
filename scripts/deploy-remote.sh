@@ -240,16 +240,20 @@ open_ssh_master() {
 	fi
 	local attempt
 	for attempt in $(seq 1 3); do
-		if ssh -MNf -p "$SSH_PORT" \
+		# First verify the connection works (foreground, simple command).
+		if ! ssh -p "$SSH_PORT" -o "ConnectTimeout=10" \
+			"$SSH_TARGET" true 2>/dev/null; then
+			warn "ssh connection attempt ${attempt} failed, retrying..."
+			sleep 2
+			continue
+		fi
+		# Now background the master connection for subsequent commands.
+		ssh -MNf -p "$SSH_PORT" \
 			-o "ControlMaster=auto" \
 			-o "ControlPersist=10m" \
 			-o "ControlPath=${SSH_CONTROL_PATH}" \
-			-o "ConnectTimeout=10" \
-			"$SSH_TARGET" 2>/dev/null; then
-			return 0
-		fi
-		warn "ssh connection attempt ${attempt} failed, retrying..."
-		sleep 2
+			"$SSH_TARGET" 2>/dev/null || true
+		return 0
 	done
 	die "ssh connection to ${SSH_TARGET} failed after 3 attempts"
 }
