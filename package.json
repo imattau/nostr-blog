@@ -7,7 +7,9 @@
     "dev": "astro dev",
     "build": "astro build",
     "start": "node dist/server/entry.mjs",
-    "astro": "astro"
+    "astro": "astro",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@0xx0lostcause0xx0/polypack": "^1.1.0",
@@ -21,6 +23,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "vitest": "^4.1.10"
   }
 }
