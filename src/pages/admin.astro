@@ -1,76 +1,99 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
 import { isSetupComplete, getAuthors } from "../lib/state";
+import { getSessionPubkey } from "../lib/auth";
 
 if (!isSetupComplete()) {
   return Astro.redirect("/", 302);
 }
 
 const authors = getAuthors();
-const siteUrl = Astro.site?.href?.replace(/\/$/, "") || "";
+
+// Check for existing session on first load (token from cookie or query param)
+// Client-side session check handles the rest
 ---
 
 <BaseLayout title="Admin" description="Manage blog authors">
   <div class="max-w-3xl mx-auto px-4 py-12 sm:py-16">
-    <h1 class="text-3xl font-bold mb-2">Admin</h1>
-    <p class="text-gray-500 dark:text-gray-400 mb-10">Manage the authors whose posts appear on this blog.</p>
+    <div id="admin-login" class="text-center py-20">
+      <h1 class="text-3xl font-bold mb-4">Admin</h1>
+      <p class="text-gray-500 dark:text-gray-400 mb-8">Sign in with your Nostr key to manage authors.</p>
+      <button
+        id="nostr-login-btn"
+        class="px-6 py-3 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition disabled:opacity-50"
+      >
+        Sign in with Nostr
+      </button>
+      <p id="login-error" class="text-red-500 text-sm mt-4 hidden"></p>
+    </div>
 
-    <section class="mb-12">
-      <h2 class="text-xl font-semibold mb-4">Add Author</h2>
-      <form id="add-author-form" class="flex gap-3">
-        <input
-          id="add-npub"
-          type="text"
-          placeholder="npub1..."
-          required
-          autocomplete="off"
-          spellcheck="false"
-          class="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-sm"
-        />
-        <button
-          type="submit"
-          class="px-6 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm whitespace-nowrap"
-        >
-          Add Author
-        </button>
-      </form>
-      <p id="add-error" class="text-red-500 text-sm mt-2 hidden"></p>
-    </section>
+    <div id="admin-panel" class="hidden">
+      <h1 class="text-3xl font-bold mb-2">Admin</h1>
+      <p class="text-gray-500 dark:text-gray-400 mb-10">Manage the authors whose posts appear on this blog.</p>
 
-    <section>
-      <h2 class="text-xl font-semibold mb-4">Authors ({authors.length})</h2>
-      {authors.length === 0 ? (
-        <p class="text-gray-500 dark:text-gray-400">No authors configured.</p>
-      ) : (
-        <ul class="space-y-3">
-          {authors.map((a) => (
-            <li class="flex items-center justify-between p-4 rounded-lg border border-gray-200 dark:border-gray-800">
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-3">
-                  {a.profile.picture ? (
-                    <img src={a.profile.picture} alt="" class="w-10 h-10 rounded-full object-cover shrink-0" />
-                  ) : (
-                    <div class="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center shrink-0 text-sm font-bold text-blue-600 dark:text-blue-400">
-                      {((a.profile.displayName || a.profile.name || "?")[0]).toUpperCase()}
+      <section class="mb-12">
+        <h2 class="text-xl font-semibold mb-4">Add Author</h2>
+        <form id="add-author-form" class="flex gap-3">
+          <input
+            id="add-npub"
+            type="text"
+            placeholder="npub1..."
+            required
+            autocomplete="off"
+            spellcheck="false"
+            class="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-sm"
+          />
+          <button
+            type="submit"
+            class="px-6 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed text-sm whitespace-nowrap"
+          >
+            Add Author
+          </button>
+        </form>
+        <p id="add-error" class="text-red-500 text-sm mt-2 hidden"></p>
+      </section>
+
+      <section>
+        <h2 class="text-xl font-semibold mb-4">Authors ({authors.length})</h2>
+        {authors.length === 0 ? (
+          <p class="text-gray-500 dark:text-gray-400">No authors configured.</p>
+        ) : (
+          <ul class="space-y-3">
+            {authors.map((a) => (
+              <li class="flex items-center justify-between p-4 rounded-lg border border-gray-200 dark:border-gray-800">
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-3">
+                    {a.profile.picture ? (
+                      <img src={a.profile.picture} alt="" class="w-10 h-10 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <div class="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center shrink-0 text-sm font-bold text-blue-600 dark:text-blue-400">
+                        {((a.profile.displayName || a.profile.name || "?")[0]).toUpperCase()}
+                      </div>
+                    )}
+                    <div class="min-w-0">
+                      <p class="font-medium truncate">{a.profile.displayName || a.profile.name || "Unknown"}</p>
+                      <p class="text-xs text-gray-400 dark:text-gray-500 font-mono truncate">{a.npub}</p>
                     </div>
-                  )}
-                  <div class="min-w-0">
-                    <p class="font-medium truncate">{a.profile.displayName || a.profile.name || "Unknown"}</p>
-                    <p class="text-xs text-gray-400 dark:text-gray-500 font-mono truncate">{a.npub}</p>
                   </div>
                 </div>
-              </div>
-              <button
-                data-npub={a.npub}
-                class="remove-btn ml-4 px-3 py-1.5 rounded-lg text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition shrink-0"
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+                <button
+                  data-npub={a.npub}
+                  class="remove-btn ml-4 px-3 py-1.5 rounded-lg text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition shrink-0"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <div class="mt-10 text-center">
+        <button id="sign-out-btn" class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline">
+          Sign out
+        </button>
+      </div>
+    </div>
 
     <div class="mt-10 text-center">
       <a href="/" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">
@@ -80,6 +103,108 @@ const siteUrl = Astro.site?.href?.replace(/\/$/, "") || "";
   </div>
 
   <script>
+    const LOGIN_KEY = "nostr-blog-admin-token";
+    const loginDiv = document.getElementById("admin-login");
+    const panelDiv = document.getElementById("admin-panel");
+    const loginBtn = document.getElementById("nostr-login-btn");
+    const loginError = document.getElementById("login-error");
+    const signOutBtn = document.getElementById("sign-out-btn");
+
+    function getToken() {
+      return sessionStorage.getItem(LOGIN_KEY);
+    }
+
+    function setToken(t) {
+      sessionStorage.setItem(LOGIN_KEY, t);
+    }
+
+    function clearToken() {
+      sessionStorage.removeItem(LOGIN_KEY);
+    }
+
+    function showPanel() {
+      if (loginDiv) loginDiv.classList.add("hidden");
+      if (panelDiv) panelDiv.classList.remove("hidden");
+    }
+
+    function showLogin() {
+      if (panelDiv) panelDiv.classList.add("hidden");
+      if (loginDiv) loginDiv.classList.remove("hidden");
+    }
+
+    async function checkSession() {
+      const token = getToken();
+      if (!token) { showLogin(); return false; }
+      try {
+        const res = await fetch("/api/auth/check", {
+          headers: { "Authorization": `Bearer ${token}` },
+        });
+        if (res.ok) { showPanel(); return true; }
+      } catch {}
+      clearToken();
+      showLogin();
+      return false;
+    }
+
+    async function nostrLogin() {
+      if (loginError) loginError.classList.add("hidden");
+      if (loginBtn) loginBtn.disabled = true;
+
+      try {
+        if (typeof window.nostr === "undefined") {
+          throw new Error("Nostr extension not found. Install Alby, nos2x, or similar.");
+        }
+
+        const chalRes = await fetch("/api/auth/challenge");
+        const { challenge } = await chalRes.json();
+
+        const pubkey = await window.nostr.getPublicKey();
+        const event = await window.nostr.signEvent({
+          kind: 22242,
+          content: challenge,
+          created_at: Math.floor(Date.now() / 1000),
+          tags: [],
+        });
+
+        const verifyRes = await fetch("/api/auth/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event }),
+        });
+
+        const data = await verifyRes.json();
+        if (!verifyRes.ok) {
+          throw new Error(data.error || "Verification failed");
+        }
+
+        setToken(data.token);
+        showPanel();
+      } catch (err: any) {
+        if (loginError) {
+          loginError.textContent = err.message || "Login failed";
+          loginError.classList.remove("hidden");
+        }
+        if (loginBtn) loginBtn.disabled = false;
+      }
+    }
+
+    loginBtn?.addEventListener("click", nostrLogin);
+
+    signOutBtn?.addEventListener("click", () => {
+      clearToken();
+      showLogin();
+    });
+
+    // Check session on load
+    checkSession();
+
+    // Authorized API calls
+    function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+      const token = getToken();
+      const headers = { ...options.headers, "Authorization": `Bearer ${token}` };
+      return fetch(url, { ...options, headers });
+    }
+
     const form = document.getElementById("add-author-form");
     const input = document.getElementById("add-npub");
     const error = document.getElementById("add-error");
@@ -91,7 +216,7 @@ const siteUrl = Astro.site?.href?.replace(/\/$/, "") || "";
       btn.disabled = true;
 
       try {
-        const res = await fetch("/api/authors", {
+        const res = await authFetch("/api/authors", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ npub: input.value.trim() }),
@@ -122,7 +247,7 @@ const siteUrl = Astro.site?.href?.replace(/\/$/, "") || "";
         btn.disabled = true;
 
         try {
-          const res = await fetch("/api/authors", {
+          const res = await authFetch("/api/authors", {
             method: "DELETE",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ npub }),

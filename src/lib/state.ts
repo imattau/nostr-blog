@@ -11,6 +11,7 @@ useWebSocketImplementation(WebSocket);
 
 interface Config {
   authors: string[];
+  admins?: string[];
 }
 
 const configPaths = [
@@ -25,7 +26,7 @@ const BOOTSTRAP_RELAYS = [
 
 const FETCH_INTERVAL_MS = 15 * 60 * 1000;
 
-let config: Config = { authors: [] };
+let config: Config = { authors: [], admins: [] };
 let fetchTimer: ReturnType<typeof setInterval> | null = null;
 let currentRelays: string[] = [...BOOTSTRAP_RELAYS];
 
@@ -297,12 +298,24 @@ export function getCachedData() {
 export function saveNpub(npub: string): void {
   if (config.authors.includes(npub)) return;
   config.authors.push(npub);
+  try {
+    const decoded = nip19.decode(npub);
+    const hex = decoded.data as string;
+    if (!config.admins) config.admins = [];
+    if (!config.admins.includes(hex)) config.admins.push(hex);
+  } catch {
+
+  }
   saveConfigFile(config);
   if (config.authors.length === 1) {
     startBackgroundFetcher();
   } else {
     refreshAll();
   }
+}
+
+export function getAdminPubkeys(): string[] {
+  return config.admins ?? [];
 }
 
 export function addAuthorNpub(npub: string): void {

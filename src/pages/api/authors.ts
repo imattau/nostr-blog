@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import { nip19 } from "nostr-tools";
 import { isSetupComplete, addAuthorNpub, removeAuthorNpub, getAuthors } from "../../lib/state";
+import { getSessionPubkey } from "../../lib/auth";
 import { rateLimit } from "../../lib/rate-limit";
 
 const NPUB_MAX_LENGTH = 200;
@@ -11,6 +12,17 @@ function getClientIp(request: Request): string {
   return request.headers.get("x-real-ip") || "unknown";
 }
 
+function requireAdmin(request: Request): Response | null {
+  const pubkey = getSessionPubkey(request);
+  if (!pubkey) {
+    return new Response(JSON.stringify({ error: "Not authenticated" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  return null;
+}
+
 export const GET: APIRoute = async () => {
   const authors = getAuthors();
   return new Response(JSON.stringify({ authors }), {
@@ -19,6 +31,9 @@ export const GET: APIRoute = async () => {
 };
 
 export const POST: APIRoute = async ({ request }) => {
+  const authErr = requireAdmin(request);
+  if (authErr) return authErr;
+
   const clientIp = getClientIp(request);
   const limit = rateLimit("authors", clientIp, 30, 60_000);
   if (!limit.allowed) {
@@ -86,6 +101,9 @@ export const POST: APIRoute = async ({ request }) => {
 };
 
 export const DELETE: APIRoute = async ({ request }) => {
+  const authErr = requireAdmin(request);
+  if (authErr) return authErr;
+
   const clientIp = getClientIp(request);
   const limit = rateLimit("authors", clientIp, 30, 60_000);
   if (!limit.allowed) {
