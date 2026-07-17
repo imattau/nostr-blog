@@ -3,27 +3,55 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 import FeaturedPost from "../components/FeaturedPost.astro";
 import PostCard from "../components/PostCard.astro";
 import AuthorCard from "../components/AuthorCard.astro";
-import { isSetupComplete, getCachedData, getProfile } from "../lib/state";
-import type { Post } from "../lib/normalize";
+import { isSetupComplete, getCachedData } from "../lib/state";
+import { getAuthorByPubkey } from "../lib/graph";
+import type { Post, Profile } from "../lib/normalize";
 ---
 
 {
   isSetupComplete() ? (
     (() => {
-      const profile = getProfile();
-      const { posts, pubkeyHex, relays } = getCachedData();
+      const data = getCachedData();
+      const { posts, authors } = data;
       const featured = posts.find((p: Post) => p.image) || posts[0];
       const remaining = posts.filter((p: Post) => p.id !== featured?.id);
       const shownIds = posts.map((p: Post) => p.id);
-      const authorName = profile?.displayName || profile?.name || "";
-      const pageTitle = authorName ? `${authorName}'s Blog` : "Home";
+      const authorPubkeys = authors.map((a: any) => a.hex);
+      const oldestTime = posts.length > 0 ? posts[posts.length - 1].publishedAt : null;
+      const pageTitle = authors.length === 1
+        ? `${authors[0].profile.displayName || authors[0].profile.name || "Home"}'s Blog`
+        : "Nostr Blog";
+      const pageDesc = authors.length === 1
+        ? (authors[0].profile.about || "A blog powered by Nostr")
+        : "A multi-author blog powered by Nostr";
+      const ogImage = authors.length > 0 ? (authors[0].profile.picture || undefined) : undefined;
+
+      function getPostAuthor(post: Post) {
+        return getAuthorByPubkey(post.pubkey);
+      }
 
       return (
-        <BaseLayout title={pageTitle} description={profile?.about || "A blog powered by Nostr"} ogImage={profile?.picture || undefined}>
+        <BaseLayout title={pageTitle} description={pageDesc} ogImage={ogImage}>
           <div class="max-w-5xl mx-auto px-4 py-12 sm:py-16">
             <section class="mb-12">
               <h1 class="sr-only">{pageTitle}</h1>
               <AuthorCard />
+            </section>
+
+            <section class="mb-10">
+              <form id="search-form" class="relative" role="search" action="/api/search" method="get" onsubmit="return false">
+                <input
+                  id="search-input"
+                  type="search"
+                  placeholder="Search posts..."
+                  autocomplete="off"
+                  class="w-full pl-10 pr-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-sm"
+                />
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <div id="search-results" class="hidden absolute top-full left-0 right-0 mt-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl z-50 max-h-[60vh] overflow-y-auto"></div>
+              </form>
             </section>
 
             {posts.length === 0 ? (
@@ -36,7 +64,7 @@ import type { Post } from "../lib/normalize";
             ) : (
               <>
                 <section class="mb-16">
-                  <FeaturedPost post={featured} />
+                  <FeaturedPost post={featured} author={getPostAuthor(featured)} />
                 </section>
 
                 {remaining.length > 0 ? (
@@ -48,7 +76,7 @@ import type { Post } from "../lib/normalize";
                     ) : null}
                     <div id="post-grid" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                       {remaining.map((post: Post) => (
-                        <PostCard post={post} />
+                        <PostCard post={post} author={getPostAuthor(post)} />
                       ))}
                     </div>
                   </section>
@@ -69,7 +97,7 @@ import type { Post } from "../lib/normalize";
           </div>
 
           <script id="nostr-blog-data" type="application/json">
-            {JSON.stringify({ pubkeyHex, relays, shownIds, oldestTime: posts.length > 0 ? posts[posts.length - 1].publishedAt : null })}
+            {JSON.stringify({ authorPubkeys, relays: data.relays, shownIds, oldestTime })}
           </script>
 
           <script>
@@ -77,7 +105,7 @@ import type { Post } from "../lib/normalize";
 
             const el = document.getElementById("nostr-blog-data");
             const data = JSON.parse(el?.textContent || "{}") as Record<string, unknown>;
-            const pubkeyHex = data.pubkeyHex as string | undefined;
+            const authorPubkeys = data.authorPubkeys as string[] | undefined;
             const relays = data.relays as string[] | undefined;
             const shownIds = new Set<string>(data.shownIds as string[] || []);
             const grid = document.getElementById("post-grid") as HTMLElement | null;
@@ -87,13 +115,13 @@ import type { Post } from "../lib/normalize";
             let oldestTime = (data.oldestTime as number) || undefined;
 
             async function loadMore() {
-              if (loading || !pubkeyHex || !relays?.length || !btn || !status) return;
+              if (loading || !authorPubkeys?.length || !relays?.length || !btn || !status) return;
               loading = true;
               btn.disabled = true;
               status.textContent = "Loading older posts from Nostr...";
               status.classList.remove("hidden");
 
-              const posts = await fetchOlderPosts(pubkeyHex, relays, oldestTime, shownIds);
+              const posts = await fetchOlderPosts(authorPubkeys, relays, oldestTime, shownIds);
 
               status.classList.add("hidden");
               loading = false;
@@ -117,9 +145,52 @@ import type { Post } from "../lib/normalize";
               btn.style.display = "inline-block";
             }
 
-            if (pubkeyHex && relays?.length && btn) {
+            if (authorPubkeys?.length && relays?.length && btn) {
               btn.style.display = "inline-block";
               btn.addEventListener("click", loadMore);
+            }
+          </script>
+
+          <script>
+            import { searchPosts } from "../lib/client";
+
+            const searchInput = document.getElementById("search-input") as HTMLInputElement | null;
+            const searchResults = document.getElementById("search-results") as HTMLElement | null;
+            let searchTimer: ReturnType<typeof setTimeout>;
+
+            searchInput?.addEventListener("input", () => {
+              clearTimeout(searchTimer);
+              const q = searchInput.value.trim();
+              if (!q || q.length < 2) {
+                if (searchResults) searchResults.classList.add("hidden");
+                return;
+              }
+              searchTimer = setTimeout(async () => {
+                const posts = await searchPosts(q);
+                if (!searchResults) return;
+                if (posts.length === 0) {
+                  searchResults.innerHTML = '<div class="p-4 text-sm text-gray-500">No results found.</div>';
+                  searchResults.classList.remove("hidden");
+                  return;
+                }
+                searchResults.innerHTML = posts.map((p: any) => `
+                  <a href="/post/${encodeURIComponent(p.slug)}" class="block p-3 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                    <div class="text-sm font-medium">${escapeHtml(p.title)}</div>
+                    ${p.summary ? `<div class="text-xs text-gray-500 mt-0.5 line-clamp-1">${escapeHtml(p.summary)}</div>` : ""}
+                  </a>
+                `).join("");
+                searchResults.classList.remove("hidden");
+              }, 300);
+            });
+
+            document.addEventListener("click", (e) => {
+              if (searchResults && !(e.target as HTMLElement).closest("#search-form")) {
+                searchResults.classList.add("hidden");
+              }
+            });
+
+            function escapeHtml(s: string) {
+              return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
             }
           </script>
         </BaseLayout>
@@ -147,17 +218,28 @@ import type { Post } from "../lib/normalize";
                 type="text"
                 placeholder="npub1..."
                 required
+                autocomplete="off"
+                spellcheck="false"
                 class="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
               />
             </div>
 
-            <p id="setup-error" class="text-red-500 text-sm hidden"></p>
+            <div id="setup-error" class="hidden p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+              <p class="text-red-600 dark:text-red-400 text-sm font-medium"></p>
+            </div>
 
             <button
               type="submit"
-              class="w-full px-4 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition disabled:opacity-50"
+              class="w-full px-4 py-2.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Set Up Blog
+              <span id="setup-btn-text">Set Up Blog</span>
+              <span id="setup-btn-loading" class="hidden">
+                <svg class="inline-block animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                Saving...
+              </span>
             </button>
           </form>
         </div>
@@ -168,28 +250,38 @@ import type { Post } from "../lib/normalize";
           e.preventDefault();
           const input = document.getElementById("npub");
           const error = document.getElementById("setup-error");
+          const errorText = error?.querySelector("p");
           const btn = e.currentTarget.querySelector("button");
+          const btnText = document.getElementById("setup-btn-text");
+          const btnLoading = document.getElementById("setup-btn-loading");
+
           btn.disabled = true;
-          error.classList.add("hidden");
+          if (btnText) btnText.classList.add("hidden");
+          if (btnLoading) btnLoading.classList.remove("hidden");
+          if (error) error.classList.add("hidden");
 
           try {
             const res = await fetch("/api/setup", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ npub: input.value }),
+              body: JSON.stringify({ npub: input.value.trim() }),
             });
             const data = await res.json();
             if (!res.ok) {
-              error.textContent = data.error || "Failed to save";
-              error.classList.remove("hidden");
+              if (errorText) errorText.textContent = data.error || "Failed to save";
+              if (error) error.classList.remove("hidden");
               btn.disabled = false;
+              if (btnText) btnText.classList.remove("hidden");
+              if (btnLoading) btnLoading.classList.add("hidden");
               return;
             }
             window.location.reload();
           } catch {
-            error.textContent = "Network error";
-            error.classList.remove("hidden");
+            if (errorText) errorText.textContent = "Network error — check console for details";
+            if (error) error.classList.remove("hidden");
             btn.disabled = false;
+            if (btnText) btnText.classList.remove("hidden");
+            if (btnLoading) btnLoading.classList.add("hidden");
           }
         });
       </script>

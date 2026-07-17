@@ -11,6 +11,8 @@ PROXY_MODE="auto"
 DOMAIN=""
 CADDY_EMAIL=""
 NPUB=""
+NPUBS=()
+MULTIUSER=false
 SSH_PORT="22"
 DRY_RUN=false
 SKIP_BUILD=false
@@ -104,7 +106,12 @@ render_header() {
 	panel_line "port     : ${PORT}"
 	panel_line "proxy    : ${proxy_display}"
 	panel_line "domain   : ${DOMAIN:-<none>}"
-	panel_line "npub     : ${NPUB:-<setup UI>}"
+	panel_line "multiuser: ${MULTIUSER}"
+	if [[ "$MULTIUSER" == true ]]; then
+		panel_line "npubs    : ${NPUBS[*]:-<none>}"
+	else
+		panel_line "npub     : ${NPUB:-<setup UI>}"
+	fi
 	panel_line "build    : $([[ "$SKIP_BUILD" == true ]] && printf 'skip local build' || printf 'npm ci + npm run build')"
 	panel_line "tty      : $([[ "$TTY_AVAILABLE" == true ]] && printf 'interactive' || printf 'non-interactive')"
 	hr
@@ -202,7 +209,8 @@ Options:
   --proxy auto|caddy|nginx|none  Reverse proxy mode (default: auto)
   --domain <hostname>      Reverse proxy hostname (required for caddy/nginx)
   --caddy-email <email>    Caddy ACME contact email
-  --npub <npub>             Nostr npub to pre-configure (skips setup UI)
+  --npub <npub>             Nostr npub to pre-configure (can repeat for multi-user)
+  --multiuser              Enable multi-author mode (accepts multiple --npub)
   --ssh-port <port>        SSH port (default: 22)
   --skip-build             Skip the local build step
   --dry-run                Print actions without executing them
@@ -212,7 +220,7 @@ Environment overrides:
   NOSTR_BLOG_SSH_TARGET, NOSTR_BLOG_PORT, NOSTR_BLOG_INSTALL_DIR,
   NOSTR_BLOG_SERVICE_USER, NOSTR_BLOG_SERVICE_GROUP, NOSTR_BLOG_PROXY,
   NOSTR_BLOG_DOMAIN, NOSTR_BLOG_CADDY_EMAIL, NOSTR_BLOG_SSH_PORT,
-  NOSTR_BLOG_NPUB, NOSTR_BLOG_DRY_RUN, NOSTR_BLOG_SKIP_BUILD
+  NOSTR_BLOG_NPUB, NOSTR_BLOG_MULTIUSER, NOSTR_BLOG_DRY_RUN, NOSTR_BLOG_SKIP_BUILD
 EOF
 }
 
@@ -346,6 +354,8 @@ PROXY_MODE="$7"
 DOMAIN="$8"
 CADDY_EMAIL="$9"
 NPUB="${10:-}"
+MULTIUSER="${11:-false}"
+NPUBS_JSON="${12:-}"
 DRY_RUN=false
 CURRENT_STEP=0
 CURRENT_STEP_LABEL=""
@@ -478,7 +488,12 @@ panel_line "service  : ${SERVICE_NAME}"
 panel_line "port     : ${PORT}"
 panel_line "proxy    : ${proxy_mode_resolved}"
 panel_line "domain   : ${DOMAIN:-<none>}"
-panel_line "npub     : ${NPUB:-<setup UI>}"
+panel_line "multiuser: ${MULTIUSER}"
+if [[ "$MULTIUSER" == true && -n "$NPUBS_JSON" ]]; then
+	panel_line "npubs    : $(printf '%s' "$NPUBS_JSON" | head -c 60)"
+else
+	panel_line "npub     : ${NPUB:-<setup UI>}"
+fi
 hr
 printf '\n'
 
@@ -504,9 +519,14 @@ remote_step_begin "ensure data directory"
 sudo_run install -d -m 0755 "${INSTALL_DIR}/data"
 sudo_run chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}/data"
 
-if [[ -n "$NPUB" ]]; then
-	log "writing npub config"
-	printf '{"npub":"%s"}\n' "$NPUB" | sudo_run tee "${INSTALL_DIR}/data/config.json" >/dev/null
+if [[ -n "$NPUB" || -n "$NPUBS_JSON" ]]; then
+	if [[ "$MULTIUSER" == true && -n "$NPUBS_JSON" ]]; then
+		log "writing multi-author config"
+		printf '{"authors":%s}\n' "$NPUBS_JSON" | sudo_run tee "${INSTALL_DIR}/data/config.json" >/dev/null
+	elif [[ -n "$NPUB" ]]; then
+		log "writing npub config"
+		printf '{"npub":"%s"}\n' "$NPUB" | sudo_run tee "${INSTALL_DIR}/data/config.json" >/dev/null
+	fi
 	sudo_run chown "${SERVICE_USER}:${SERVICE_GROUP}" "${INSTALL_DIR}/data/config.json"
 fi
 remote_step_done
@@ -790,11 +810,23 @@ REMOTESCRIPT
 )"
 	local remote_script_file
 	remote_script_file="$(mktemp)"
+	# Build NPUBS as a JSON array for multi-user
+	local npubs_json=""
+	if [[ "${#NPUBS[@]}" -gt 0 ]]; then
+		npubs_json="["
+		local first=true
+		for n in "${NPUBS[@]}"; do
+			$first && first=false || npubs_json+=","
+			npubs_json+="\"$n\""
+		done
+		npubs_json+="]"
+	fi
+
 	printf '%s\n' "$remote_script" >"$remote_script_file"
 	if [[ "$DRY_RUN" == true ]]; then
 		local remote_args
-		printf -v remote_args '%q %q %q %q %q %q %q %q %q %q' \
-			"$INSTALL_DIR" "$REMOTE_STAGE_DIR" "$SERVICE_NAME" "$SERVICE_USER" "$SERVICE_GROUP" "$PORT" "$PROXY_MODE" "$DOMAIN" "$CADDY_EMAIL" "$NPUB"
+		printf -v remote_args '%q %q %q %q %q %q %q %q %q %q %q %q' \
+			"$INSTALL_DIR" "$REMOTE_STAGE_DIR" "$SERVICE_NAME" "$SERVICE_USER" "$SERVICE_GROUP" "$PORT" "$PROXY_MODE" "$DOMAIN" "$CADDY_EMAIL" "$NPUB" "$MULTIUSER" "$npubs_json"
 		printf '[dry-run] scp -P %s -o ControlMaster=auto -o ControlPersist=10m -o ControlPath=%q %q %q:%q\n' \
 			"$SSH_PORT" "$SSH_CONTROL_PATH" "$remote_script_file" "$SSH_TARGET" "/tmp/${SERVICE_NAME}-deploy.sh"
 		printf '[dry-run] ssh -tt -p %s -o ControlMaster=auto -o ControlPersist=10m -o ControlPath=%q %q bash %q %s\n' \
@@ -814,7 +846,7 @@ REMOTESCRIPT
 		-o "ControlMaster=auto" \
 		-o "ControlPersist=10m" \
 		-o "ControlPath=${SSH_CONTROL_PATH}" \
-		"$SSH_TARGET" "bash /tmp/${SERVICE_NAME}-deploy.sh $(printf '%q ' "$INSTALL_DIR" "$REMOTE_STAGE_DIR" "$SERVICE_NAME" "$SERVICE_USER" "$SERVICE_GROUP" "$PORT" "$PROXY_MODE" "$DOMAIN" "$CADDY_EMAIL" "$NPUB")"
+		"$SSH_TARGET" "bash /tmp/${SERVICE_NAME}-deploy.sh $(printf '%q ' "$INSTALL_DIR" "$REMOTE_STAGE_DIR" "$SERVICE_NAME" "$SERVICE_USER" "$SERVICE_GROUP" "$PORT" "$PROXY_MODE" "$DOMAIN" "$CADDY_EMAIL" "$NPUB" "$MULTIUSER" "$npubs_json")"
 	step_done
 }
 
@@ -854,7 +886,12 @@ while [[ $# -gt 0 ]]; do
 			;;
 		--npub)
 			NPUB="${2:-}"
+			NPUBS+=("$NPUB")
 			shift 2
+			;;
+		--multiuser)
+			MULTIUSER=true
+			shift
 			;;
 		--ssh-port)
 			SSH_PORT="${2:-}"
@@ -909,6 +946,9 @@ if [[ -z "$CADDY_EMAIL" ]]; then
 fi
 if [[ -z "$NPUB" ]]; then
 	NPUB="${NOSTR_BLOG_NPUB:-}"
+fi
+if [[ "$MULTIUSER" == false && -n "${NOSTR_BLOG_MULTIUSER:-}" ]]; then
+	is_true "$NOSTR_BLOG_MULTIUSER" && MULTIUSER=true || true
 fi
 if [[ "$SSH_PORT" == "22" && -n "${NOSTR_BLOG_SSH_PORT:-}" ]]; then
 	SSH_PORT="$NOSTR_BLOG_SSH_PORT"

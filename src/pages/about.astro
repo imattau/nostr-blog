@@ -1,15 +1,17 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import { isSetupComplete, getProfile, getNpub, getPubkeyHex, getPosts } from "../lib/state";
+import { isSetupComplete, getAuthors, getPosts } from "../lib/state";
 import { buildPersonJsonLd, jsonLdToString } from "../lib/seo";
 
 if (!isSetupComplete()) {
   return Astro.redirect("/", 302);
 }
 
-const profile = getProfile();
-const npub = getNpub() || "";
-const hex = getPubkeyHex() || "";
+const authors = getAuthors();
+const primary = authors[0];
+const profile = primary?.profile ?? null;
+const npub = primary?.npub || "";
+const hex = primary?.hex || "";
 const postCount = getPosts().length;
 const name = profile?.displayName || profile?.name || "";
 const siteUrl = Astro.site?.href?.replace(/\/$/, "") || "";
@@ -109,6 +111,32 @@ const personJsonLd = profile ? jsonLdToString(buildPersonJsonLd(profile, siteUrl
         </div>
       )
     }
+
+    {authors.length > 1 ? (
+      <section class="mt-16 pt-8 border-t border-gray-200 dark:border-gray-800">
+        <h2 class="text-xl font-bold mb-6 text-center">All Authors</h2>
+        <div class="grid gap-4 sm:grid-cols-2">
+          {authors.map((a) => (
+            <a
+              href={`/authors/${a.hex}`}
+              class="flex items-center gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-800 hover:shadow-md transition"
+            >
+              {a.profile.picture ? (
+                <img src={a.profile.picture} alt="" class="w-10 h-10 rounded-full object-cover shrink-0" />
+              ) : (
+                <div class="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center shrink-0 text-sm font-bold text-blue-600 dark:text-blue-400">
+                  {((a.profile.displayName || a.profile.name || "?")[0]).toUpperCase()}
+                </div>
+              )}
+              <div class="min-w-0">
+                <p class="font-medium truncate">{a.profile.displayName || a.profile.name || "Unknown"}</p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 truncate">{a.npub.slice(0, 16)}...</p>
+              </div>
+            </a>
+          ))}
+        </div>
+      </section>
+    ) : null}
 
     <div class="text-center mt-10">
       <a

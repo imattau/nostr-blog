@@ -1,11 +1,15 @@
 ---
-import type { Post } from "../types";
+import type { Post, Profile } from "../lib/normalize";
 
 export interface Props {
   post: Post;
+  author?: { npub: string; hex: string; profile: Profile } | null;
 }
 
-const { post } = Astro.props;
+const { post, author } = Astro.props;
+const authorProfile = author?.profile;
+const authorName = authorProfile?.displayName || authorProfile?.name || "";
+const authorPicture = authorProfile?.picture || "";
 ---
 
 <a
@@ -23,6 +27,19 @@ const { post } = Astro.props;
   ) : null}
 
   <div class="p-5">
+    {authorName ? (
+      <div class="flex items-center gap-2 mb-3">
+        {authorPicture ? (
+          <img src={authorPicture} alt={authorName} class="w-6 h-6 rounded-full object-cover" />
+        ) : (
+          <div class="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-xs font-bold text-blue-600 dark:text-blue-400">
+            {(authorName[0] || "?").toUpperCase()}
+          </div>
+        )}
+        <span class="text-xs text-gray-500 dark:text-gray-400 truncate">{authorName}</span>
+      </div>
+    ) : null}
+
     <div class="flex items-center gap-2 mb-2">
       <span class="text-xs text-gray-500 dark:text-gray-400">
         {new Date(post.publishedAt * 1000).toLocaleDateString("en-US", {

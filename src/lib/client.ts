@@ -73,74 +73,93 @@ export function renderFeaturedPost(post: Post): string {
 </a>`;
 }
 
+function fetchFromRelay(pubkeyHex: string, relays: string[], filter: any): Promise<any[]> {
+  const pool = new SimplePool();
+  return pool.querySync(relays, filter).finally(() => pool.close(relays));
+}
+
 export async function fetchOlderPosts(
-  pubkeyHex: string,
+  authorPubkeys: string[],
   relays: string[],
   until: number | undefined,
   knownIds: Set<string>
 ): Promise<Post[]> {
-  const pool = new SimplePool();
-  try {
-    const filter: any = {
-      kinds: [1, 30023],
-      authors: [pubkeyHex],
-      "#t": ["nostrblog"],
-      limit: 20,
-    };
-    if (until) filter.until = until - 1;
-    const events = await pool.querySync(relays, filter);
-    return events
-      .map(normalizeEvent)
-      .filter((p): p is Post => p !== null && !knownIds.has(p.id))
-      .sort((a, b) => b.publishedAt - a.publishedAt);
-  } catch {
-    return [];
-  } finally {
-    pool.close(relays);
+  const results: Post[] = [];
+  const untilFilter = until ? { until: until - 1 } : {};
+
+  for (const pubkeyHex of authorPubkeys) {
+    try {
+      const events = await fetchFromRelay(pubkeyHex, relays, {
+        kinds: [1, 30023],
+        authors: [pubkeyHex],
+        "#t": ["nostrblog"],
+        limit: 20,
+        ...untilFilter,
+      });
+      const posts = events
+        .map(normalizeEvent)
+        .filter((p): p is Post => p !== null && !knownIds.has(p.id));
+      results.push(...posts);
+    } catch {
+
+    }
   }
+
+  return results
+    .filter((p, i, arr) => arr.findIndex(x => x.id === p.id) === i)
+    .sort((a, b) => b.publishedAt - a.publishedAt);
 }
 
 export async function fetchPostBySlug(
-  pubkeyHex: string,
+  authorPubkeys: string[],
   relays: string[],
   slug: string
 ): Promise<Post | undefined> {
-  const pool = new SimplePool();
-  try {
-    const events = await pool.querySync(relays, {
-      kinds: [30023],
-      authors: [pubkeyHex],
-      "#t": ["nostrblog"],
-      "#d": [slug],
-      limit: 10,
-    });
-    if (events.length > 0) {
-      const post = normalizeEvent(events[0]);
-      if (post) return post;
-    }
+  for (const pubkeyHex of authorPubkeys) {
+    try {
+      const events = await fetchFromRelay(pubkeyHex, relays, {
+        kinds: [30023],
+        authors: [pubkeyHex],
+        "#t": ["nostrblog"],
+        "#d": [slug],
+        limit: 10,
+      });
+      if (events.length > 0) {
+        const post = normalizeEvent(events[0]);
+        if (post) return post;
+      }
 
-    const noteEvents = await pool.querySync(relays, {
-      kinds: [1],
-      authors: [pubkeyHex],
-      "#t": ["nostrblog"],
-      limit: 50,
-    });
-    const notes = noteEvents.map(normalizeEvent).filter((p): p is Post => p !== null);
-    return notes.find((p) => p.slug === slug);
+      const noteEvents = await fetchFromRelay(pubkeyHex, relays, {
+        kinds: [1],
+        authors: [pubkeyHex],
+        "#t": ["nostrblog"],
+        limit: 50,
+      });
+      const notes = noteEvents.map(normalizeEvent).filter((p): p is Post => p !== null);
+      const found = notes.find((p) => p.slug === slug);
+      if (found) return found;
+    } catch {
+
+    }
+  }
+  return undefined;
+}
+
+export async function searchPosts(query: string, threshold = 0.15, topK = 20): Promise<Post[]> {
+  try {
+    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&threshold=${threshold}&topK=${topK}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.posts as Post[];
   } catch {
-    return undefined;
-  } finally {
-    pool.close(relays);
+    return [];
   }
 }
 
 export function renderMarkdown(content: string, container: HTMLElement): void {
-  import("marked").then(({ Marked }) => {
+  import("marked").then(async ({ Marked }) => {
     const marked = new Marked();
-    marked.parse(stripHtml(content)).then((html) => {
-      container.innerHTML = html;
-    });
+    const html = await marked.parse(stripHtml(content));
+    container.innerHTML = html;
   });
 }
-
-

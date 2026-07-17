@@ -1,15 +1,32 @@
 ---
-import { getProfile, getNpub } from "../lib/state";
+import { getAuthorByPubkey } from "../lib/graph";
+import { getAuthors } from "../lib/state";
 
-const profile = getProfile();
-const npub = getNpub();
+export interface Props {
+  pubkeyHex?: string;
+}
+
+const { pubkeyHex } = Astro.props;
+
+let author: ReturnType<typeof getAuthorByPubkey> | null = null;
+
+if (pubkeyHex) {
+  author = getAuthorByPubkey(pubkeyHex);
+} else {
+  const all = getAuthors();
+  author = all.length > 0 ? all[0] : null;
+}
+
+const profile = author?.profile ?? null;
 const name = profile?.displayName || profile?.name || "";
+const npub = author?.npub ?? null;
+const hex = author?.hex ?? null;
 ---
 
 {
   profile ? (
     <a
-      href="/about"
+      href={hex ? `/authors/${hex}` : "/about"}
       class="group block rounded-xl border border-gray-200 dark:border-gray-800 p-5 hover:shadow-md hover:border-gray-300 dark:hover:border-gray-700 transition-all"
     >
       <div class="flex items-start gap-4">
@@ -33,6 +50,11 @@ const name = profile?.displayName || profile?.name || "";
           {profile.about ? (
             <p class="text-sm text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
               {profile.about}
+            </p>
+          ) : null}
+          {npub ? (
+            <p class="text-xs text-gray-400 dark:text-gray-500 mt-1 font-mono truncate">
+              {npub.slice(0, 16)}...{npub.slice(-8)}
             </p>
           ) : null}
           <p class="text-sm text-blue-600 dark:text-blue-400 mt-2 font-medium">

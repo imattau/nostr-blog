@@ -16,12 +16,20 @@ import { isSetupComplete } from "../lib/state";
         Posts
       </a>
       {isSetupComplete() ? (
-        <a
-          href="/about"
-          class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
-        >
-          About
-        </a>
+        <>
+          <a
+            href="/about"
+            class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+          >
+            About
+          </a>
+          <a
+            href="/admin"
+            class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+          >
+            Admin
+          </a>
+        </>
       ) : null}
       <ThemeToggle />
     </nav>

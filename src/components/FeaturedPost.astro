@@ -1,11 +1,14 @@
 ---
-import type { Post } from "../types";
+import type { Post, Profile } from "../lib/normalize";
 
 export interface Props {
   post: Post;
+  author?: { npub: string; hex: string; profile: Profile } | null;
 }
 
-const { post } = Astro.props;
+const { post, author } = Astro.props;
+const authorProfile = author?.profile;
+const authorName = authorProfile?.displayName || authorProfile?.name || "";
 ---
 
 <a
@@ -27,6 +30,13 @@ const { post } = Astro.props;
     <span class="inline-block text-xs font-medium uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-3">
       Featured
     </span>
+
+    {authorName ? (
+      <div class="flex items-center gap-2 mb-3 text-sm text-gray-500 dark:text-gray-400">
+        <span>By {authorName}</span>
+      </div>
+    ) : null}
+
     <h2 class="text-2xl sm:text-3xl font-bold mb-3 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
       {post.title}
     </h2>

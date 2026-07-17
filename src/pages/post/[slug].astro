@@ -1,6 +1,7 @@
 ---
 import BaseLayout from "../../layouts/BaseLayout.astro";
-import { getPostBySlug, getPubkeyHex, getRelays, getCachedData, getProfile } from "../../lib/state";
+import { getPostBySlug, getCachedData } from "../../lib/state";
+import { getAuthorByPubkey } from "../../lib/graph";
 import { Marked } from "marked";
 import type { Post } from "../../lib/normalize";
 import { stripHtml, renderNoteContent } from "../../lib/sanitize";
@@ -8,11 +9,12 @@ import { buildArticleJsonLd, buildBreadcrumbJsonLd, jsonLdToString } from "../..
 
 const { slug } = Astro.params;
 const post = slug ? getPostBySlug(slug) : undefined;
-const pubkeyHex = getPubkeyHex();
-const relays = getRelays();
-const cachedPosts = getCachedData().posts;
-const profile = getProfile();
-const authorName = profile?.displayName || profile?.name || "";
+const data = getCachedData();
+const relays = data.relays;
+const authorPubkeys = data.authors.map((a: any) => a.hex);
+const author = post ? getAuthorByPubkey(post.pubkey) : null;
+const authorName = author?.profile?.displayName || author?.profile?.name || "";
+const authorPicture = author?.profile?.picture || "";
 const siteUrl = Astro.site?.href?.replace(/\/$/, "") || "";
 
 const OPEN_WRITE_RELAYS = [
@@ -44,7 +46,7 @@ const breadcrumbJsonLd = post ? jsonLdToString(buildBreadcrumbJsonLd([
     <BaseLayout
       title={post.title}
       description={post.summary}
-      ogImage={post.image || profile?.picture || undefined}
+      ogImage={post.image || authorPicture || undefined}
       ogUrl={postUrl}
       ogType="article"
       canonicalUrl={postUrl}
@@ -72,6 +74,17 @@ const breadcrumbJsonLd = post ? jsonLdToString(buildBreadcrumbJsonLd([
         ) : null}
 
         <header class="mb-10">
+          {authorName ? (
+            <div class="flex items-center gap-2 mb-4">
+              {authorPicture ? (
+                <img src={authorPicture} alt={authorName} class="w-8 h-8 rounded-full object-cover" />
+              ) : null}
+              <a href={`/authors/${post.pubkey}`} class="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                {authorName}
+              </a>
+            </div>
+          ) : null}
+
           <div class="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400 mb-4">
             <time datetime={new Date(post.publishedAt * 1000).toISOString()}>
               {new Date(post.publishedAt * 1000).toLocaleDateString("en-US", {
@@ -110,7 +123,7 @@ const breadcrumbJsonLd = post ? jsonLdToString(buildBreadcrumbJsonLd([
       <section class="max-w-3xl mx-auto px-4 pb-16">
         <h2 class="text-xl font-bold mb-6">Comments</h2>
         <disgus-comments
-          pubkey={pubkeyHex}
+          pubkey={post.pubkey}
           relays={commentRelays}
           event-id={post.kind === 1 ? post.id : undefined}
         ></disgus-comments>
@@ -184,7 +197,7 @@ const breadcrumbJsonLd = post ? jsonLdToString(buildBreadcrumbJsonLd([
       <section class="max-w-3xl mx-auto px-4 pb-16">
         <h2 class="text-xl font-bold mb-6">Comments</h2>
         <disgus-comments
-          pubkey={pubkeyHex}
+          pubkey={authorPubkeys[0] || ""}
           relays={commentRelays}
         ></disgus-comments>
       </section>
@@ -192,7 +205,7 @@ const breadcrumbJsonLd = post ? jsonLdToString(buildBreadcrumbJsonLd([
       <script is:inline src="/disgus/disgus.js" defer></script>
 
       <script id="nostr-post-data" type="application/json">
-        {JSON.stringify({ slug, pubkeyHex, relays })}
+        {JSON.stringify({ slug, authorPubkeys, relays })}
       </script>
 
       <script>
@@ -203,16 +216,16 @@ const breadcrumbJsonLd = post ? jsonLdToString(buildBreadcrumbJsonLd([
           const el = document.getElementById("nostr-post-data");
           const data = JSON.parse(el?.textContent || "{}") as Record<string, unknown>;
           const slug = data.slug as string;
-          const pubkeyHex = data.pubkeyHex as string | undefined;
+          const authorPubkeys = data.authorPubkeys as string[] | undefined;
           const relays = data.relays as string[] | undefined;
 
-          if (!pubkeyHex || !relays?.length || !slug) return;
+          if (!authorPubkeys?.length || !relays?.length || !slug) return;
 
           const loading = document.getElementById("post-loading") as HTMLElement | null;
           const content = document.getElementById("post-content") as HTMLElement | null;
           const error = document.getElementById("post-error") as HTMLElement | null;
 
-          const post = await fetchPostBySlug(pubkeyHex, relays, slug);
+          const post = await fetchPostBySlug(authorPubkeys, relays, slug);
 
           if (!post) {
             if (loading) loading.classList.add("hidden");

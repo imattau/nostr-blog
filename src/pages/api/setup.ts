@@ -16,13 +16,13 @@ function getClientIp(request: Request): string {
 function isValidOrigin(request: Request): boolean {
   const origin = request.headers.get("origin");
   const referer = request.headers.get("referer");
-  const host = request.headers.get("host");
   if (!origin && !referer) return false;
   const source = origin || referer || "";
   try {
     const sourceUrl = new URL(source);
-    if (host && sourceUrl.host === host) return true;
-    if (sourceUrl.host === "localhost" || sourceUrl.host === "127.0.0.1") return true;
+    const host = request.headers.get("host");
+    if (host && new URL(`http://${host}`).hostname === sourceUrl.hostname) return true;
+    if (sourceUrl.hostname === "localhost" || sourceUrl.hostname === "127.0.0.1") return true;
     return false;
   } catch {
     return false;
@@ -86,8 +86,9 @@ export const POST: APIRoute = async ({ request }) => {
     });
   }
 
+  const npub = body.npub.trim();
   try {
-    nip19.decode(body.npub);
+    nip19.decode(npub);
   } catch {
     return new Response(JSON.stringify({ error: "Invalid npub format" }), {
       status: 400,
@@ -95,7 +96,15 @@ export const POST: APIRoute = async ({ request }) => {
     });
   }
 
-  saveNpub(body.npub);
+  try {
+    saveNpub(npub);
+  } catch (err) {
+    console.error("[nostr-blog] Failed to save npub:", err);
+    return new Response(JSON.stringify({ error: "Failed to save configuration" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   return new Response(JSON.stringify({ ok: true }), {
     headers: { "Content-Type": "application/json" },

@@ -1,0 +1,119 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import PostCard from "../../components/PostCard.astro";
+import { getAuthorByPubkey, getPostsByAuthor } from "../../lib/graph";
+import type { Post } from "../../lib/normalize";
+import { buildPersonJsonLd, jsonLdToString } from "../../lib/seo";
+
+const { hex } = Astro.params;
+const author = hex ? getAuthorByPubkey(hex) : null;
+
+if (!author) {
+  return Astro.redirect("/", 302);
+}
+
+const { profile, npub } = author;
+const posts = getPostsByAuthor(hex);
+const name = profile.displayName || profile.name || "";
+const siteUrl = Astro.site?.href?.replace(/\/$/, "") || "";
+const imageUrl = profile.picture || undefined;
+const personJsonLd = jsonLdToString(buildPersonJsonLd(profile, siteUrl));
+---
+
+<BaseLayout
+  title={name ? `About ${name}` : "About"}
+  description={profile.about}
+  ogImage={imageUrl}
+  ogUrl={siteUrl ? `${siteUrl}/about` : undefined}
+  canonicalUrl={siteUrl ? `${siteUrl}/about` : undefined}
+  jsonLd={personJsonLd}
+>
+  <div class="max-w-5xl mx-auto px-4 py-12 sm:py-16">
+    <div class="text-center" itemscope itemtype="https://schema.org/Person">
+      {profile.banner ? (
+        <div class="aspect-[3/1] rounded-2xl overflow-hidden mb-8 bg-gray-100 dark:bg-gray-900">
+          <img src={profile.banner} alt="" class="w-full h-full object-cover" />
+        </div>
+      ) : null}
+
+      <div class={profile.banner ? "-mt-16 mb-6" : "mb-6"}>
+        {profile.picture ? (
+          <img
+            src={profile.picture}
+            alt={name}
+            itemprop="image"
+            class="w-28 h-28 rounded-full object-cover mx-auto border-4 border-white dark:border-gray-950 bg-gray-100 dark:bg-gray-900"
+          />
+        ) : (
+          <div class="w-28 h-28 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center mx-auto border-4 border-white dark:border-gray-950">
+            <span class="text-3xl font-bold text-blue-600 dark:text-blue-400">
+              {(name[0] || "?").toUpperCase()}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <h1 class="text-3xl font-bold mb-2" itemprop="name">{name}</h1>
+
+      {profile.nip05 ? (
+        <p class="text-sm text-green-600 dark:text-green-400 mb-3">
+          &#10003; {profile.nip05}
+        </p>
+      ) : null}
+
+      {profile.website ? (
+        <a
+          href={profile.website.startsWith("http") ? profile.website : `https://${profile.website}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          itemprop="url"
+          class="inline-block text-sm text-blue-600 dark:text-blue-400 hover:underline mb-4"
+        >
+          {profile.website.replace(/^https?:\/\//, "")}
+        </a>
+      ) : null}
+
+      {profile.about ? (
+        <div class="mt-6 text-left max-w-xl mx-auto">
+          <p class="text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap" itemprop="description">
+            {profile.about}
+          </p>
+        </div>
+      ) : null}
+
+      <div class="mt-10 pt-8 border-t border-gray-200 dark:border-gray-800">
+        <dl class="flex justify-center gap-8">
+          <div>
+            <dt class="text-2xl font-bold">{posts.length}</dt>
+            <dd class="text-sm text-gray-500 dark:text-gray-400">Posts</dd>
+          </div>
+          {npub ? (
+            <div>
+              <dt class="text-xs text-gray-400 break-all max-w-[200px] font-mono">
+                {npub.slice(0, 16)}...{npub.slice(-8)}
+              </dt>
+              <dd class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">npub</dd>
+            </div>
+          ) : null}
+        </dl>
+      </div>
+    </div>
+
+    {posts.length > 0 ? (
+      <section class="mt-16">
+        <h2 class="text-xl font-bold mb-6">Posts by {name}</h2>
+        <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {posts.map((post: Post) => (
+            <PostCard post={post} author={author} />
+          ))}
+        </div>
+      </section>
+    ) : null}
+
+    <div class="text-center mt-10">
+      <a href="/" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">
+        &larr; Back to blog
+      </a>
+    </div>
+  </div>
+</BaseLayout>

@@ -4,56 +4,13 @@ import WebSocket from "ws";
 import fs from "node:fs";
 import path from "node:path";
 import { normalizeEvent, type Post, type Profile } from "./normalize";
+import { addPost, clearPosts, getPost, getAllPosts, addAuthor, getAuthorByPubkey, getAllAuthors, removeAuthor, setRelays, getRelays as getGraphRelays, searchPosts } from "./graph";
+import { getEmbedding, getPostText } from "./embed";
 
 useWebSocketImplementation(WebSocket);
 
-const POST_CACHE_MAX = 5;
-
 interface Config {
-  npub: string | null;
-}
-
-class LRUCache<T> {
-  private max: number;
-  private map: Map<string, T>;
-
-  constructor(max: number) {
-    this.max = max;
-    this.map = new Map();
-  }
-
-  get(key: string): T | undefined {
-    if (!this.map.has(key)) return undefined;
-    const value = this.map.get(key)!;
-    this.map.delete(key);
-    this.map.set(key, value);
-    return value;
-  }
-
-  set(key: string, value: T): void {
-    if (this.map.has(key)) this.map.delete(key);
-    this.map.set(key, value);
-    if (this.map.size > this.max) {
-      const firstKey = this.map.keys().next().value;
-      if (firstKey !== undefined) this.map.delete(firstKey);
-    }
-  }
-
-  has(key: string): boolean {
-    return this.map.has(key);
-  }
-
-  clear(): void {
-    this.map.clear();
-  }
-
-  getAll(): T[] {
-    return [...this.map.values()];
-  }
-
-  get size(): number {
-    return this.map.size;
-  }
+  authors: string[];
 }
 
 const configPaths = [
@@ -68,11 +25,9 @@ const BOOTSTRAP_RELAYS = [
 
 const FETCH_INTERVAL_MS = 15 * 60 * 1000;
 
-let config: Config = { npub: null };
-let profile: Profile | null = null;
-let currentRelays: string[] = [...BOOTSTRAP_RELAYS];
+let config: Config = { authors: [] };
 let fetchTimer: ReturnType<typeof setInterval> | null = null;
-const postCache = new LRUCache<Post>(POST_CACHE_MAX);
+let currentRelays: string[] = [...BOOTSTRAP_RELAYS];
 
 function resolveConfigPath(): string {
   for (const p of configPaths) {
@@ -93,15 +48,21 @@ function loadConfig(): Config {
     try {
       const raw = fs.readFileSync(p, "utf-8");
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && (parsed.npub === null || typeof parsed.npub === "string")) {
-        resolvedConfigPath = p;
-        return parsed as Config;
+      if (parsed && typeof parsed === "object") {
+        if (Array.isArray(parsed.authors)) {
+          resolvedConfigPath = p;
+          return parsed as Config;
+        }
+        if (typeof parsed.npub === "string") {
+          resolvedConfigPath = p;
+          return { authors: [parsed.npub] };
+        }
       }
     } catch {
 
     }
   }
-  return { npub: null };
+  return { authors: [] };
 }
 
 function saveConfigFile(cfg: Config): void {
@@ -124,7 +85,7 @@ async function discoverRelays(pubkeyHex: string): Promise<string[]> {
         .map((t) => t[1])
         .filter(Boolean);
       if (relays.length > 0) {
-        console.log(`[nostr-blog] Discovered ${relays.length} relays from author`);
+        console.log(`[nostr-blog] Discovered ${relays.length} relays from ${pubkeyHex.slice(0, 8)}`);
         return [...new Set(relays)];
       }
     }
@@ -201,101 +162,181 @@ async function fetchPosts(pubkeyHex: string, relays: string[], limit?: number): 
   }
 }
 
-async function refreshAll(): Promise<void> {
+async function refreshAuthor(pubkeyHex: string, npub: string): Promise<void> {
   try {
-    if (!config.npub) return;
-    console.log("[nostr-blog] Refreshing...");
-
-    let pubkeyHex: string;
-    try {
-      const decoded = nip19.decode(config.npub);
-      pubkeyHex = decoded.data as string;
-    } catch {
-      return;
-    }
-
     const relays = await discoverRelays(pubkeyHex);
-    currentRelays = relays;
+    for (const r of relays) {
+      if (!currentRelays.includes(r)) currentRelays.push(r);
+    }
+    setRelays(currentRelays);
 
     const [fetched, prof] = await Promise.all([
       fetchPosts(pubkeyHex, relays, 10),
       fetchProfile(pubkeyHex, relays),
     ]);
 
-    if (fetched.length > 0) {
-      postCache.clear();
-      const latest = fetched.slice(0, POST_CACHE_MAX);
-      for (const post of latest) {
-        postCache.set(post.slug, post);
-      }
-      console.log(`[nostr-blog] Cached ${latest.length} posts (LRU max ${POST_CACHE_MAX})`);
-    }
     if (prof) {
-      profile = prof;
+      addAuthor(pubkeyHex, npub, prof);
       console.log(`[nostr-blog] Cached profile for ${prof.displayName || prof.name}`);
     }
+
+    if (fetched.length > 0) {
+      for (const post of fetched) {
+        const text = getPostText(post);
+        const vector = await getEmbedding(text);
+        addPost(post, vector);
+      }
+      console.log(`[nostr-blog] Cached ${fetched.length} posts from ${npub.slice(0, 12)}...`);
+    }
   } catch (err) {
-    console.error("[nostr-blog] Refresh failed:", err);
+    console.error(`[nostr-blog] Refresh failed for ${npub.slice(0, 12)}:`, err);
   }
+}
+
+async function refreshAll(): Promise<void> {
+  if (config.authors.length === 0) return;
+  console.log(`[nostr-blog] Refreshing ${config.authors.length} authors...`);
+
+  const allRelays: string[] = [...BOOTSTRAP_RELAYS];
+  const authorEntries: Array<{ hex: string; npub: string }> = [];
+
+  for (const npub of config.authors) {
+    try {
+      const decoded = nip19.decode(npub);
+      const hex = decoded.data as string;
+      authorEntries.push({ hex, npub });
+    } catch {
+      console.warn(`[nostr-blog] Invalid npub in config: ${npub.slice(0, 12)}`);
+    }
+  }
+
+  clearPosts();
+
+  for (const entry of authorEntries) {
+    try {
+      const relays = await discoverRelays(entry.hex);
+      for (const r of relays) {
+        if (!allRelays.includes(r)) allRelays.push(r);
+      }
+
+      const [fetched, prof] = await Promise.all([
+        fetchPosts(entry.hex, relays, 10),
+        fetchProfile(entry.hex, relays),
+      ]);
+
+      if (prof) {
+        addAuthor(entry.hex, entry.npub, prof);
+        console.log(`[nostr-blog] Cached profile for ${prof.displayName || prof.name}`);
+      }
+
+      for (const post of fetched) {
+        const text = getPostText(post);
+        const vector = await getEmbedding(text);
+        addPost(post, vector);
+      }
+      console.log(`[nostr-blog] Cached ${fetched.length} posts from ${entry.npub.slice(0, 12)}...`);
+    } catch (err) {
+      console.error(`[nostr-blog] Refresh failed for ${entry.npub.slice(0, 12)}:`, err);
+    }
+  }
+
+  currentRelays = allRelays;
+  setRelays(allRelays);
+  console.log(`[nostr-blog] Refresh complete — ${getAllPosts().length} total posts`);
 }
 
 function startBackgroundFetcher(): void {
   if (fetchTimer) clearInterval(fetchTimer);
-  if (!config.npub) return;
+  if (config.authors.length === 0) return;
   refreshAll();
   fetchTimer = setInterval(refreshAll, FETCH_INTERVAL_MS);
 }
 
 export function getPosts(): Post[] {
-  return postCache.getAll();
+  return getAllPosts();
 }
 
 export function getPostBySlug(slug: string): Post | undefined {
-  return postCache.get(slug);
+  return getPost(slug);
 }
 
 export function getProfile(): Profile | null {
-  return profile;
+  const authors = getAllAuthors();
+  return authors.length > 0 ? authors[0].profile : null;
 }
 
 export function getNpub(): string | null {
-  return config.npub;
+  const authors = getAllAuthors();
+  return authors.length > 0 ? authors[0].npub : null;
+}
+
+export function getPubkeyHex(): string | null {
+  const authors = getAllAuthors();
+  return authors.length > 0 ? authors[0].hex : null;
 }
 
 export function getRelays(): string[] {
   return currentRelays;
 }
 
-export function getPubkeyHex(): string | null {
-  if (!config.npub) return null;
-  try {
-    const decoded = nip19.decode(config.npub);
-    return decoded.data as string;
-  } catch {
-    return null;
-  }
-}
-
 export function isSetupComplete(): boolean {
-  return config.npub !== null && config.npub.length > 0;
+  return config.authors.length > 0;
 }
 
-export function getCachedData(): { posts: Post[]; profile: Profile | null; relays: string[]; pubkeyHex: string | null } {
+export function getCachedData() {
+  const authors = getAllAuthors();
   return {
-    posts: postCache.getAll(),
-    profile,
+    posts: getAllPosts(),
+    profile: authors.length > 0 ? authors[0].profile : null,
+    pubkeyHex: authors.length > 0 ? authors[0].hex : null,
     relays: currentRelays,
-    pubkeyHex: getPubkeyHex(),
+    authors,
   };
 }
 
 export function saveNpub(npub: string): void {
-  config.npub = npub;
+  if (config.authors.includes(npub)) return;
+  config.authors.push(npub);
   saveConfigFile(config);
-  startBackgroundFetcher();
+  if (config.authors.length === 1) {
+    startBackgroundFetcher();
+  } else {
+    refreshAll();
+  }
+}
+
+export function addAuthorNpub(npub: string): void {
+  if (config.authors.includes(npub)) return;
+  config.authors.push(npub);
+  saveConfigFile(config);
+  refreshAll();
+}
+
+export function removeAuthorNpub(npub: string): void {
+  config.authors = config.authors.filter(a => a !== npub);
+  saveConfigFile(config);
+  try {
+    const decoded = nip19.decode(npub);
+    const hex = decoded.data as string;
+    removeAuthor(hex);
+  } catch {
+
+  }
+}
+
+export function getAuthors(): Array<{ npub: string; hex: string; profile: Profile }> {
+  return getAllAuthors();
+}
+
+export function searchForPosts(query: string, threshold = 0.15, topK = 20): Promise<Post[]> {
+  return getEmbedding(query).then(vec => {
+    const arr: number[] = [];
+    for (let i = 0; i < vec.length; i++) arr.push(vec[i]);
+    return searchPosts(arr, threshold, topK);
+  });
 }
 
 config = loadConfig();
-if (config.npub) {
+if (config.authors.length > 0) {
   startBackgroundFetcher();
 }
