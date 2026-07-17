@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { verifyEvent } from "nostr-tools";
+import { verifyEvent, getEventHash, serializeEvent } from "nostr-tools";
 import { consumeChallenge, createSession } from "../../../lib/auth";
 import { getAdminPubkeys } from "../../../lib/state";
 
@@ -24,6 +24,14 @@ export const POST: APIRoute = async ({ request }) => {
 
   if (!consumeChallenge(event.content)) {
     return new Response(JSON.stringify({ error: "Invalid or expired challenge" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  const computedId = getEventHash(event);
+  if (computedId !== event.id) {
+    return new Response(JSON.stringify({ error: "Event hash mismatch" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
     });
